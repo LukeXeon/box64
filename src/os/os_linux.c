@@ -39,6 +39,12 @@ int IsBridgeSignature(char s, char c)
     return s == 'S' && c == 'C';
 }
 
+/* [rosetta 补丁 0002] 平台钩子四件在嵌入形态下由宿主(shim)自供:
+ * syscall 出口走 rosetta 传输面(非宿主内核)、fork 走宿主
+ * fail-loud(guest fork 语义归 gVisor)——上游实现依赖
+ * x64syscall.c(未随嵌入式构建编入)且语义为宿主直通,保留则
+ * 链接冲突且运行时语义错误。EmuInt3 保留上游(x64int3.c 随
+ * 全量保留编译)。 */
 void EmuInt3(void* emu, void* addr)
 {
     return x64Int3((x64emu_t*)emu, (uintptr_t*)addr);
@@ -49,6 +55,7 @@ int IsNativeCall(uintptr_t addr, int is32bits, uintptr_t* calladdress, uint16_t*
     return isNativeCallInternal(addr, is32bits, calladdress, retn);
 }
 
+#ifndef ROSETTA_EMBED
 void* EmuFork(void* emu, int forktype)
 {
     return x64emu_fork((x64emu_t*)emu, forktype);
@@ -68,6 +75,7 @@ void EmuX86Syscall(void* emu)
 {
     x86Syscall((x64emu_t*)emu);
 }
+#endif
 
 extern int box64_is32bits;
 

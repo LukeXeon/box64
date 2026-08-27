@@ -1098,4 +1098,14 @@ void init_malloc_hook() {}
 void startMallocHook() {}
 void endMallocHook() {}
 void checkHookedSymbols(elfheader_t* h) {}
+/* [rosetta 补丁 0008] bionic 无 glibc 分配钩子;32 位堆与 64 位
+ * 同地址空间,box32_* 转发常规分配器(上游 box32+ANDROID 组合
+ * 原本缺失此族,链接缺口实测) */
+void* box32_calloc(size_t n, size_t s) { return calloc(n, s); }
+void* box32_malloc(size_t s) { return malloc(s); }
+void* box32_realloc(void* p, size_t s) { return realloc(p, s); }
+void box32_free(void* p) { free(p); }
+void* box32_memalign(size_t align, size_t s) { void* p = NULL; return (posix_memalign(&p, align, s)==0)?p:NULL; }
+size_t box32_malloc_usable_size(void* p) { return malloc_usable_size(p); }
+char* box32_strdup(const char* s) { return strdup(s); }
 #endif //!ANDROID

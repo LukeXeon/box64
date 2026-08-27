@@ -37,6 +37,12 @@ static void create_lib_symlink(const char* lib)
 
 static void create_libs_symlink(const char* folder)
 {
+    /* [rosetta 补丁 0008] bionic glob/globfree 自 API 28 起;低版本
+     * 宿主跳过 symlink 生成(steam 容器特性) */
+#if defined(ANDROID) && __ANDROID_API__ < 28
+    (void)folder;
+    return;
+#else
     glob_t g = {0};
     char tmp[MAX_PATH] = {0};
     // start with lib*.so.X.X.XXX
@@ -60,6 +66,7 @@ static void create_libs_symlink(const char* folder)
         }
         globfree(&g);
     }
+#endif /* [rosetta 补丁 0008] */
 }
 
 void pressure_vessel(int argc, const char** argv, int nextarg, const char* prog)

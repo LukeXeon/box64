@@ -1760,6 +1760,11 @@ void init_signal_helper(box64context_t* context)
     for(int i=0; i<=MAX_SIGNAL; ++i) {
         context->signals[i] = 0;    // SIG_DFL
     }
+    /* [rosetta 补丁 0005] 宿主信号处理器不随嵌入形态安装:进程信号
+     * 策略归 shim(缺页上行/懒提交 fault 回路);box64 处理器会拦截
+     * guest 页读缺页,阻断翻译(实测 pass0 首指令后 siglongjmp →
+     * 空块 → 解释器回退)。handler 语义的 rosetta 化归后续阶段 */
+#ifndef ROSETTA_EMBED
     struct sigaction action = {0};
     action.sa_flags = SA_SIGINFO | SA_RESTART | SA_NODEFER;
     action.sa_sigaction = my_box64signalhandler;
@@ -1773,6 +1778,7 @@ void init_signal_helper(box64context_t* context)
     action.sa_flags = SA_SIGINFO | SA_RESTART | SA_NODEFER;
     action.sa_sigaction = my_box64signalhandler;
     sigaction(SIGABRT, &action, NULL);
+#endif
 
     pthread_once(&sigstack_key_once, sigstack_key_alloc);
 #ifdef USE_SIGNAL_MUTEX
@@ -1783,10 +1789,13 @@ void init_signal_helper(box64context_t* context)
 
 void fini_signal_helper()
 {
+    /* [rosetta 补丁 0005] 处理器未安装,同样不重置(信号策略归 shim) */
+#ifndef ROSETTA_EMBED
     signal(SIGSEGV, SIG_DFL);
     signal(SIGBUS, SIG_DFL);
     signal(SIGILL, SIG_DFL);
     signal(SIGABRT, SIG_DFL);
+#endif
 }
 
 #ifdef NEED_SIG_CONV

@@ -3180,6 +3180,12 @@ EXPORT int32_t my_execlp(x64emu_t* emu, const char* path)
 EXPORT int32_t my_posix_spawn(x64emu_t* emu, pid_t* pid, const char* fullpath,
     const posix_spawn_file_actions_t *actions, const posix_spawnattr_t* attrp,  char* const argv[], char* const envp[])
 {
+    /* [rosetta 补丁 0006] bionic < API 28 无 posix_spawn;低版本宿主
+     * 回 ENOSYS(进程派生语义后续阶段经传输面实现,不依赖宿主) */
+#if defined(ANDROID) && __ANDROID_API__ < 28
+    (void)emu; (void)pid; (void)fullpath; (void)actions; (void)attrp; (void)argv; (void)envp;
+    return -1;
+#else
     int self = isProcSelf(fullpath, "exe");
     int x64 = FileIsX64ELF(fullpath);
     int x86 = my_context->box86path?FileIsX86ELF(fullpath):0;
@@ -3215,12 +3221,18 @@ EXPORT int32_t my_posix_spawn(x64emu_t* emu, pid_t* pid, const char* fullpath,
     } else
         ret = posix_spawn(pid, fullpath, actions, attrp, argv, envp);
     return ret;
+#endif /* [rosetta 补丁 0006] */
 }
 
 // execvp should use PATH to search for the program first
 EXPORT int32_t my_posix_spawnp(x64emu_t* emu, pid_t* pid, const char* path,
     const posix_spawn_file_actions_t *actions, const posix_spawnattr_t* attrp,  char* const argv[], char* const envp[])
 {
+    /* [rosetta 补丁 0006] 同 my_posix_spawn */
+#if defined(ANDROID) && __ANDROID_API__ < 28
+    (void)emu; (void)pid; (void)path; (void)actions; (void)attrp; (void)argv; (void)envp;
+    return -1;
+#else
     // need to use BOX64_PATH / PATH here...
     char* fullpath = ResolveFileSoft(path, &my_context->box64_path);
     // use fullpath...
@@ -3260,6 +3272,7 @@ EXPORT int32_t my_posix_spawnp(x64emu_t* emu, pid_t* pid, const char* path,
         ret = posix_spawnp(pid, path, actions, attrp, argv, envp);
     box_free(fullpath);
     return ret;
+#endif /* [rosetta 补丁 0006] */
 }
 
 EXPORT void my__Jv_RegisterClasses() {}

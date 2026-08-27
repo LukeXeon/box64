@@ -693,8 +693,16 @@ EXPORT int my32_pthread_getattr_np(x64emu_t* emu, uintptr_t th, void* attr)
         if (!sz) {
             // get default stack size
             pthread_attr_t attr;
+#if defined(ANDROID)
+            /* [rosetta 补丁 0008] bionic 无 pthread_getattr_default_np;
+             * 新初始化 attr 未设栈大小即默认值(bionic 主线程 8MB) */
+            pthread_attr_init(&attr);
+            pthread_attr_getstacksize(&attr, &sz);
+            if(!sz) sz = 8 * 1024 * 1024;
+#else
             pthread_getattr_default_np(&attr);
             pthread_attr_getstacksize(&attr, &sz);
+#endif
             pthread_attr_destroy(&attr);
             // should stack be adjusted?
         }
@@ -713,7 +721,13 @@ EXPORT int my32_pthread_attr_getguardsize(x64emu_t* emu, void* attr, void* p)
 }
 EXPORT int my32_pthread_attr_getinheritsched(x64emu_t* emu, void* attr, void* p)
 {
+    /* [rosetta 补丁 0008] bionic 无此函数;低版本回 0 */
+#if defined(ANDROID) && __ANDROID_API__ < 28
+    (void)emu; (void)attr; (void)p;
+    return 0;
+#else
     return pthread_attr_getinheritsched(get_attr(attr), p);
+#endif
 }
 EXPORT int my32_pthread_attr_getschedparam(x64emu_t* emu, void* attr, void* p)
 {
@@ -753,7 +767,13 @@ EXPORT int my32_pthread_attr_setguardsize(x64emu_t* emu, void* attr, size_t p)
 }
 EXPORT int my32_pthread_attr_setinheritsched(x64emu_t* emu, void* attr, int p)
 {
+    /* [rosetta 补丁 0008] 同 getinheritsched */
+#if defined(ANDROID) && __ANDROID_API__ < 28
+    (void)emu; (void)attr; (void)p;
+    return 0;
+#else
     return pthread_attr_setinheritsched(get_attr(attr), p);
+#endif
 }
 EXPORT int my32_pthread_attr_setschedparam(x64emu_t* emu, void* attr, void* param)
 {
@@ -1046,7 +1066,14 @@ EXPORT int my32_pthread_mutex_init(pthread_mutex_t *m, pthread_mutexattr_t *att)
     fake->__kind = KIND_SIGN;
     fake->real_mutex = to_ptrv(createNewMutex());
     int ret = pthread_mutex_init(from_ptrv(fake->real_mutex), att);
+    /* [rosetta 补丁 0008] bionic 不公开 struct __pthread_mutex_s;
+     * kind 回读以默认 fast 类近似(bionic 内部布局重接归 32 位 ABI
+     * 阶段) */
+#if defined(ANDROID)
+    fake->i386__kind = 0; /* PTHREAD_MUTEX_TIMED_NP 等价 */
+#else
     fake->i386__kind = ((struct __pthread_mutex_s*)from_ptrv(fake->real_mutex))->__kind;
+#endif
     printf_log(LOG_DEBUG, "(init t%d %p) ", fake->i386__kind, from_ptrv(fake->real_mutex));
     return ret;
 }

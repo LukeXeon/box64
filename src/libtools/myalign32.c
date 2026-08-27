@@ -6,7 +6,11 @@
 #include <sys/epoll.h>
 #include <fts.h>
 #include <sys/socket.h>
+/* [rosetta 补丁 0008] bionic 无 obstack;obstack 布局转换函数整体
+ * 跳过(32 位 glibc obstack 对齐在 bionic 宿主不可用) */
+#if !defined(ANDROID)
 #include <obstack.h>
+#endif
 
 #include "x64emu.h"
 #include "emu/x64emu_private.h"
@@ -1479,6 +1483,8 @@ void convert_regext_to_64(void* d, void* s)
     dst->flags = src->flags;
 }
 
+/* [rosetta 补丁 0008] obstack 布局转换(见文件头守卫) */
+#if !defined(ANDROID)
 void* inplace_obstack_chunk_shrink(void* a)
 {
     if(a) {
@@ -1554,3 +1560,9 @@ void convert_obstack_to_64(void* d, void* s)
         chunk = prev;
     }
 }
+#else /* ANDROID:bionic 无 obstack,转换无宿主对象,空语义 */
+void* inplace_obstack_chunk_shrink(void* a) { return a; }
+void* inplace_obstack_chunk_enlarge(void* a) { return a; }
+void convert_obstack_to_32(void* d, void* s) { (void)d; (void)s; }
+void convert_obstack_to_64(void* d, void* s) { (void)d; (void)s; }
+#endif /* [rosetta 补丁 0008] */

@@ -416,7 +416,11 @@ EXPORT int my_pthread_attr_getguardsize(x64emu_t* emu, pthread_attr_t* attr, siz
 }
 EXPORT int my_pthread_attr_getinheritsched(x64emu_t* emu, pthread_attr_t* attr, int* sched)
 {
-#ifndef TERMUX
+#if defined(ANDROID) && __ANDROID_API__ < 28
+	/* [rosetta 补丁 0007] bionic < 28 无此声明;与 TERMUX 分支同语义 */
+	(void)emu; (void)attr; (void)sched;
+	return 0;
+#elif !defined(TERMUX)
 	(void)emu;
 	PTHREAD_ATTR_ALIGN(attr);
 	return pthread_attr_getinheritsched(PTHREAD_ATTR(attr), sched);
@@ -526,7 +530,11 @@ EXPORT int my_pthread_attr_setguardsize(x64emu_t* emu, pthread_attr_t* attr, siz
 }
 EXPORT int my_pthread_attr_setinheritsched(x64emu_t* emu, pthread_attr_t* attr, int sched)
 {
-#ifndef TERMUX
+#if defined(ANDROID) && __ANDROID_API__ < 28
+	/* [rosetta 补丁 0007] 同 getinheritsched */
+	(void)emu; (void)attr; (void)sched;
+	return 0;
+#elif !defined(TERMUX)
 	(void)emu;
 	PTHREAD_ATTR_ALIGN(attr);
 	int ret = pthread_attr_setinheritsched(PTHREAD_ATTR(attr), sched);
@@ -1038,7 +1046,11 @@ EXPORT int my_pthread_mutexattr_getkind_np(x64emu_t* emu, my_mutexattr_t *attr, 
 }
 EXPORT int my_pthread_mutexattr_getprotocol(x64emu_t* emu, my_mutexattr_t *attr, void* p)
 {
-#ifndef TERMUX
+#if defined(ANDROID) && __ANDROID_API__ < 28
+	/* [rosetta 补丁 0007] bionic < 28 无此声明;与 TERMUX 分支同语义 */
+	(void)emu; (void)attr; (void)p;
+	return 0;
+#elif !defined(TERMUX)
 	(void)emu;
 	my_mutexattr_t mattr = {0};
 	mattr.x86 = attr->x86;
@@ -1102,7 +1114,11 @@ EXPORT int my_pthread_mutexattr_setprioceiling(x64emu_t* emu, my_mutexattr_t *at
 }
 EXPORT int my_pthread_mutexattr_setprotocol(x64emu_t* emu, my_mutexattr_t *attr, int p)
 {
-#ifndef TERMUX
+#if defined(ANDROID) && __ANDROID_API__ < 28
+	/* [rosetta 补丁 0007] 同 getprotocol */
+	(void)emu; (void)attr; (void)p;
+	return 0;
+#elif !defined(TERMUX)
 	(void)emu;
 	my_mutexattr_t mattr = {0};
 	mattr.x86 = attr->x86;

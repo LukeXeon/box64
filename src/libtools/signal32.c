@@ -277,6 +277,12 @@ typedef union my_sigval32
   ptr_t sival_ptr;
 } my_sigval32_t;
 
+/* [rosetta 补丁 0008] bionic siginfo.h 的便利宏与 32 位结构成员
+ * 同名(si_tid 等),结构定义前解除;glibc 宿主无这些宏,undef 无害 */
+#if defined(ANDROID)
+#undef si_tid
+#endif
+
 typedef struct __attribute__((packed, aligned(4))) my_siginfo32_s
 {
     int si_signo;
@@ -307,7 +313,13 @@ typedef struct __attribute__((packed, aligned(4))) my_siginfo32_s
     } _sigchld;
 	struct {
 	    ptr_t __si_addr;
+	    /* [rosetta 补丁 0008] glibc 的 __SI_SIGFAULT_ADDL 在 bionic
+	     * 未定义;其 x86 展开即 _si_pkey(x86 内核 siginfo 布局) */
+#if defined(ANDROID)
+	    int _si_pkey;
+#else
 	    __SI_SIGFAULT_ADDL
+#endif
 	    int16_t __si_addr_lsb;
 	    union {
             struct {
