@@ -3180,9 +3180,11 @@ EXPORT int32_t my_execlp(x64emu_t* emu, const char* path)
 EXPORT int32_t my_posix_spawn(x64emu_t* emu, pid_t* pid, const char* fullpath,
     const posix_spawn_file_actions_t *actions, const posix_spawnattr_t* attrp,  char* const argv[], char* const envp[])
 {
-    /* [rosetta 补丁 0006] bionic < API 28 无 posix_spawn;低版本宿主
-     * 回 ENOSYS(进程派生语义后续阶段经传输面实现,不依赖宿主) */
-#if defined(ANDROID) && __ANDROID_API__ < 28
+    /* [rosetta 补丁 0006 修订] guest 进程派生归 gVisor(进程语义只在
+     * sentry task 层;宿主 posix_spawn 直通违反红线,与 API 级无关——
+     * 原 <28 条件在高 API 构建链放通成宿主直生,收口)——恒 fail-closed;
+     * 传输面接管归后续项(docs/spec/bionic-compat.md) */
+#if defined(ROSETTA_EMBED)
     (void)emu; (void)pid; (void)fullpath; (void)actions; (void)attrp; (void)argv; (void)envp;
     return -1;
 #else
@@ -3228,8 +3230,8 @@ EXPORT int32_t my_posix_spawn(x64emu_t* emu, pid_t* pid, const char* fullpath,
 EXPORT int32_t my_posix_spawnp(x64emu_t* emu, pid_t* pid, const char* path,
     const posix_spawn_file_actions_t *actions, const posix_spawnattr_t* attrp,  char* const argv[], char* const envp[])
 {
-    /* [rosetta 补丁 0006] 同 my_posix_spawn */
-#if defined(ANDROID) && __ANDROID_API__ < 28
+    /* [rosetta 补丁 0006 修订] 同 my_posix_spawn */
+#if defined(ROSETTA_EMBED)
     (void)emu; (void)pid; (void)path; (void)actions; (void)attrp; (void)argv; (void)envp;
     return -1;
 #else

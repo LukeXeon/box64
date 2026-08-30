@@ -14,6 +14,11 @@
 #include "threads.h"
 #include "emu/x64emu_private.h"
 #include "x64emu.h"
+#if defined(ANDROID)
+/* [rosetta 补丁 0007 修订] bionic API 缺口由 compat 库统一供给
+ * (docs/spec/bionic-compat.md;与 bionic 逐行等价,不分 __ANDROID_API__ 分支) */
+#include "compat/bionic_compat.h"
+#endif
 #include "box64stack.h"
 #include "box64cpu.h"
 #include "box64cpu_util.h"
@@ -416,10 +421,11 @@ EXPORT int my_pthread_attr_getguardsize(x64emu_t* emu, pthread_attr_t* attr, siz
 }
 EXPORT int my_pthread_attr_getinheritsched(x64emu_t* emu, pthread_attr_t* attr, int* sched)
 {
-#if defined(ANDROID) && __ANDROID_API__ < 28
-	/* [rosetta 补丁 0007] bionic < 28 无此声明;与 TERMUX 分支同语义 */
-	(void)emu; (void)attr; (void)sched;
-	return 0;
+#if defined(ANDROID)
+	/* [rosetta 补丁 0007 修订] compat 统一供给(语义 = bionic) */
+	(void)emu;
+	PTHREAD_ATTR_ALIGN(attr);
+	return rosetta_compat_pthread_attr_getinheritsched(PTHREAD_ATTR(attr), sched);
 #elif !defined(TERMUX)
 	(void)emu;
 	PTHREAD_ATTR_ALIGN(attr);
@@ -530,10 +536,13 @@ EXPORT int my_pthread_attr_setguardsize(x64emu_t* emu, pthread_attr_t* attr, siz
 }
 EXPORT int my_pthread_attr_setinheritsched(x64emu_t* emu, pthread_attr_t* attr, int sched)
 {
-#if defined(ANDROID) && __ANDROID_API__ < 28
-	/* [rosetta 补丁 0007] 同 getinheritsched */
-	(void)emu; (void)attr; (void)sched;
-	return 0;
+#if defined(ANDROID)
+	/* [rosetta 补丁 0007 修订] compat 统一供给(语义 = bionic) */
+	(void)emu;
+	PTHREAD_ATTR_ALIGN(attr);
+	int ret = rosetta_compat_pthread_attr_setinheritsched(PTHREAD_ATTR(attr), sched);
+	PTHREAD_ATTR_UNALIGN(attr);
+	return ret;
 #elif !defined(TERMUX)
 	(void)emu;
 	PTHREAD_ATTR_ALIGN(attr);
@@ -1046,10 +1055,14 @@ EXPORT int my_pthread_mutexattr_getkind_np(x64emu_t* emu, my_mutexattr_t *attr, 
 }
 EXPORT int my_pthread_mutexattr_getprotocol(x64emu_t* emu, my_mutexattr_t *attr, void* p)
 {
-#if defined(ANDROID) && __ANDROID_API__ < 28
-	/* [rosetta 补丁 0007] bionic < 28 无此声明;与 TERMUX 分支同语义 */
-	(void)emu; (void)attr; (void)p;
-	return 0;
+#if defined(ANDROID)
+	/* [rosetta 补丁 0007 修订] compat 统一供给(语义 = bionic) */
+	(void)emu;
+	my_mutexattr_t mattr = {0};
+	mattr.x86 = attr->x86;
+	int ret = rosetta_compat_pthread_mutexattr_getprotocol(&mattr.nat, p);
+	attr->x86 = mattr.x86;
+	return ret;
 #elif !defined(TERMUX)
 	(void)emu;
 	my_mutexattr_t mattr = {0};
@@ -1114,10 +1127,14 @@ EXPORT int my_pthread_mutexattr_setprioceiling(x64emu_t* emu, my_mutexattr_t *at
 }
 EXPORT int my_pthread_mutexattr_setprotocol(x64emu_t* emu, my_mutexattr_t *attr, int p)
 {
-#if defined(ANDROID) && __ANDROID_API__ < 28
-	/* [rosetta 补丁 0007] 同 getprotocol */
-	(void)emu; (void)attr; (void)p;
-	return 0;
+#if defined(ANDROID)
+	/* [rosetta 补丁 0007 修订] compat 统一供给(语义 = bionic) */
+	(void)emu;
+	my_mutexattr_t mattr = {0};
+	mattr.x86 = attr->x86;
+	int ret = rosetta_compat_pthread_mutexattr_setprotocol(&mattr.nat, p);
+	attr->x86 = mattr.x86;
+	return ret;
 #elif !defined(TERMUX)
 	(void)emu;
 	my_mutexattr_t mattr = {0};
