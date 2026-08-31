@@ -37,6 +37,17 @@ void WinFree(void* ptr);
 #endif
 
 void* InternalMmap(void* addr, unsigned long length, int prot, int flags, int fd, ssize_t offset);
+
+/* [rosetta 补丁 0009] guest 可见分配钩子(ROSETTA_EMBED):装载期的
+ * 映像段/栈分配必须进 gVisor mm——guest syscall 传进来的指针必须能被
+ * sentry copyin 解析,宿主匿名映射会触 EFAULT(ADR-0014 的根本差异)。
+ * shim 供给(合成 ring syscall);宿主内部簿记(arena/哈希)仍用
+ * InternalMmap 宿主侧。装载期无注册 guest handler,无决投帧写。 */
+#ifdef ROSETTA_EMBED
+void* rosetta_guest_mmap(void* addr, size_t len, int prot, int flags);
+int rosetta_guest_mprotect(void* addr, size_t len, int prot);
+int rosetta_guest_munmap(void* addr, size_t len);
+#endif
 int InternalMunmap(void* addr, unsigned long length);
 
 int GetTID(void);

@@ -23,7 +23,13 @@ int CalcStackSize(box64context_t *context)
         CalcStack(context->elfs[i], &context->stacksz, &context->stackalign);
 
     //if (posix_memalign((void**)&context->stack, context->stackalign, context->stacksz)) {
+#ifdef ROSETTA_EMBED
+    /* [rosetta 补丁 0009] guest 栈进 gVisor mm(guest syscall 的栈
+     * 指针必须可被 sentry 解析);MAP_GROWSDOWN 不带(gVisor 不支持) */
+    context->stack = rosetta_guest_mmap(NULL, context->stacksz, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS);
+#else
     context->stack = mmap(NULL, context->stacksz, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS|MAP_GROWSDOWN, -1, 0);
+#endif
     if (context->stack==(void*)-1) {
         printf_log(LOG_NONE, "Cannot allocate aligned memory (0x%lx/0x%zx) for stack\n", context->stacksz, context->stackalign);
         return 1;
@@ -85,7 +91,13 @@ void SetupInitialStack(x64emu_t *emu)
     // push some AuxVector stuffs
     PushString(emu, "x86_64");
     uintptr_t p_x86_64 = R_RSP;
+#ifdef ROSETTA_EMBED
+    /* [rosetta 补丁 0009] 宿主 auxv 的 AT_RANDOM 指向宿主栈,guest
+     * 不可读——恒走下方自造回退(16B 随机直压 guest 栈) */
+    uintptr_t p_random = 0;
+#else
     uintptr_t p_random = real_getauxval(25);
+#endif
     if(!p_random) {
         for (int i=0; i<4; ++i)
             Push32(emu, random());
@@ -121,7 +133,14 @@ void SetupInitialStack(x64emu_t *emu)
     elfheader_t* main = my_context->elfs[0];
     Push64(emu, 0); Push64(emu, 0);                         //AT_NULL(0)=0
     Push64(emu, main->fileno); Push64(emu, 2);   //AT_EXECFD=file desciptor of program
+#ifdef ROSETTA_EMBED
+    /* [rosetta 补丁 0009] AT_PHDR 必须指 guest 内存:phdr 表取映像
+     * 内副本(首 PT_LOAD 含头页,e_phoff 自映像内 ehdr 读回),
+     * 非宿主堆指针 */
+    Push64(emu, (uintptr_t)main->image + ((Elf64_Ehdr*)main->image)->e_phoff); Push64(emu, 3);
+#else
     Push64(emu, (uintptr_t)main->PHEntries._64); Push64(emu, 3);                          //AT_PHDR(3)=address of the PH of the executable
+#endif
     Push64(emu, sizeof(Elf64_Phdr)); Push64(emu, 4);                          //AT_PHENT(4)=size of PH entry
     Push64(emu, main->numPHEntries); Push64(emu, 5);                          //AT_PHNUM(5)=number of elf headers
     Push64(emu, box64_pagesize); Push64(emu, 6);            //AT_PAGESZ(6)

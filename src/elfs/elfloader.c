@@ -266,10 +266,19 @@ int AllocLoadElfMemory(box64context_t* context, elfheader_t* head, int mainbin)
     void* image = NULL;
     if(!head->vaddr) {
         sz += head->align;
+#ifdef ROSETTA_EMBED
+        /* [rosetta 补丁 0009] 映像预占进 gVisor mm(guest 可见) */
+        raw = rosetta_guest_mmap((void*)offs, sz, 0, MAP_ANONYMOUS|MAP_PRIVATE|MAP_NORESERVE);
+#else
         raw = InternalMmap((void*)offs, sz, 0, MAP_ANONYMOUS|MAP_PRIVATE|MAP_NORESERVE, -1, 0);
+#endif
         image = (void*)(((uintptr_t)raw+max_align)&~max_align);
     } else {
+#ifdef ROSETTA_EMBED
+        image = raw = rosetta_guest_mmap((void*)head->vaddr, sz, 0, MAP_ANONYMOUS|MAP_PRIVATE|MAP_NORESERVE);
+#else
         image = raw = InternalMmap((void*)head->vaddr, sz, 0, MAP_ANONYMOUS|MAP_PRIVATE|MAP_NORESERVE, -1, 0);
+#endif
         if(head->vaddr&(box64_pagesize-1)) {
             // load address might be lower
             if((uintptr_t)image == (head->vaddr&~(box64_pagesize-1))) {
@@ -282,7 +291,11 @@ int AllocLoadElfMemory(box64context_t* context, elfheader_t* head, int mainbin)
         printf_log(LOG_INFO, "%s: Mmap64 for (@%p 0x%zx) for elf \"%s\" returned %p(%p/0x%zx) instead\n", (((uintptr_t)image)&max_align)?"Error":"Warning", (void*)(head->vaddr?head->vaddr:offs), head->memsz, head->name, image, raw, head->align);
         offs = (uintptr_t)image;
         if(((uintptr_t)image)&max_align) {
+#ifdef ROSETTA_EMBED
+            rosetta_guest_munmap(raw, sz);
+#else
             InternalMunmap(raw, sz);
+#endif
             return 1;   // that's an error, alocated memory is not aligned properly
         }
     }
@@ -337,6 +350,11 @@ int AllocLoadElfMemory(box64context_t* context, elfheader_t* head, int mainbin)
                 try_mmap = 0;
             if(e->p_align<box64_pagesize)
                 try_mmap = 0;
+#ifdef ROSETTA_EMBED
+            /* [rosetta 补丁 0009] 宿主 fd 无法进 gVisor mm——恒走
+             * 匿名映射 + fread 回路(内容宿主侧读,页是 guest 的) */
+            try_mmap = 0;
+#endif
             if(try_mmap) {
                 printf_dump(log_level, "Mmaping 0x%lx(0x%lx) bytes @%p with prot %x for Elf \"%s\"\n", head->multiblocks[n].size, head->multiblocks[n].asize, (void*)head->multiblocks[n].paddr, prot, head->name);
                 void* p = InternalMmap(
@@ -364,6 +382,14 @@ int AllocLoadElfMemory(box64context_t* context, elfheader_t* head, int mainbin)
                 void* p = MAP_FAILED;
                 if(paddr==(paddr&~(box64_pagesize-1)) && (asize==ALIGN(asize))) {
                     printf_dump(log_level, "Allocating 0x%zx (0x%zx) bytes @%p, will read 0x%zx @%p for Elf \"%s\"\n", asize, e->p_memsz, (void*)paddr, e->p_filesz, (void*)head->multiblocks[n].paddr, head->name);
+#ifdef ROSETTA_EMBED
+                    p = rosetta_guest_mmap(
+                        (void*)paddr,
+                        asize,
+                        prot|PROT_WRITE,
+                        MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED
+                    );
+#else
                     p = InternalMmap(
                         (void*)paddr,
                         asize,
@@ -372,6 +398,7 @@ int AllocLoadElfMemory(box64context_t* context, elfheader_t* head, int mainbin)
                         -1,
                         0
                     );
+#endif
                 } else {
                     // difference in pagesize, so need to mmap only what needed to be...
                     //check startint point
@@ -387,6 +414,15 @@ int AllocLoadElfMemory(box64context_t* context, elfheader_t* head, int mainbin)
                     }
                     if(new_size>0) {
                         printf_dump(log_level, "Allocating 0x%zx (0x%zx/0x%zx) bytes @%p, will read 0x%zx @%p for Elf \"%s\"\n", ALIGN(new_size), paddr, e->p_memsz, (void*)new_addr, e->p_filesz, (void*)head->multiblocks[n].paddr, head->name);
+#ifdef ROSETTA_EMBED
+                        /* [rosetta 补丁 0009] 同上:guest 可见分配 */
+                        p = rosetta_guest_mmap(
+                            (void*)new_addr,
+                            ALIGN(new_size),
+                            prot|PROT_WRITE,
+                            MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED
+                        );
+#else
                         p = InternalMmap(
                             (void*)new_addr,
                             ALIGN(new_size),
@@ -395,6 +431,7 @@ int AllocLoadElfMemory(box64context_t* context, elfheader_t* head, int mainbin)
                             -1,
                             0
                         );
+#endif
                         if(p==(void*)new_addr)
                             p = (void*)paddr;
                     } else {
@@ -457,7 +494,12 @@ int AllocLoadElfMemory(box64context_t* context, elfheader_t* head, int mainbin)
             for(uintptr_t page = start; page < end; page += box64_pagesize) {
                 uint32_t prot = getProtection(page);
                 if(prot && !(prot & PROT_WRITE))
+#ifdef ROSETTA_EMBED
+                    /* [rosetta 补丁 0009] 终态权限上达 gVisor VMA */
+                    rosetta_guest_mprotect((void*)page, box64_pagesize, prot & ~PROT_CUSTOM);
+#else
                     mprotect((void*)page, box64_pagesize, prot & ~PROT_CUSTOM);
+#endif
             }
         }
     }
@@ -487,7 +529,11 @@ void FreeElfMemory(elfheader_t* head)
     // we only need to free the overall mmap, no need to free individual part as they are inside the big one
     if(head->raw && head->raw_size) {
         dynarec_log(LOG_INFO, "Unmap elf memory %p-%p for %s\n", head->raw, head->raw+head->raw_size, head->path);
+#ifdef ROSETTA_EMBED
+        rosetta_guest_munmap(head->raw, head->raw_size); /* [rosetta 补丁 0009] */
+#else
         InternalMunmap(head->raw, head->raw_size);
+#endif
     }
     freeProtection((uintptr_t)head->raw, head->raw_size);
 }
