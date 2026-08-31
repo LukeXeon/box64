@@ -86,17 +86,24 @@ void SetupInitialStack(x64emu_t *emu)
     PushString(emu, "x86_64");
     uintptr_t p_x86_64 = R_RSP;
 #ifdef ROSETTA_EMBED
-    /* [rosetta 补丁 0009] 宿主 auxv 的 AT_RANDOM 指向宿主栈,guest
-     * 不可读——恒走下方自造回退(16B 随机直压 guest 栈) */
+    /* [rosetta 补丁 0009] AT_RANDOM 正向产出:guest getrandom 写真
+     * 随机字节进 guest 栈(零宿主内核调用;宿主 auxv 的 AT_RANDOM
+     * 是 ART 服务进程的栈地址,与本会话无关,不可取用) */
     uintptr_t p_random = 0;
+    {
+        for (int i=0; i<4; ++i)
+            Push32(emu, 0);
+        p_random = R_RSP;
+        rosetta_guest_getrandom((void*)p_random, 16);
+    }
 #else
     uintptr_t p_random = real_getauxval(25);
-#endif
     if(!p_random) {
         for (int i=0; i<4; ++i)
             Push32(emu, random());
         p_random = R_RSP;
     }
+#endif
     // align
     tmp = (R_RSP)&~(emu->context->stackalign-1);
     memset((void*)tmp, 0, R_RSP-tmp);

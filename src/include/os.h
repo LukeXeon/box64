@@ -48,9 +48,16 @@ void* InternalMmap(void* addr, unsigned long length, int prot, int flags, int fd
  * 直调 mmap/munmap/mprotect 的漏网点由构建侧 TU 强制包含头收口
  * (andock shim/guestheap/alloc_redirect.h)。 */
 #ifdef ROSETTA_EMBED
+#include <stdio.h>
 void* rosetta_guest_mmap(void* addr, size_t len, int prot, int flags, int fd, ssize_t offset);
 int rosetta_guest_mprotect(void* addr, size_t len, int prot);
 int rosetta_guest_munmap(void* addr, size_t len);
+/* [rosetta 补丁 0009] loader 文件 IO 的 guest 面:funopen 包裹 guest
+ * fd(bionic 无 fopencookie);fileno 登记簿供 elfloader 的 try_mmap;
+ * getrandom = AT_RANDOM 的 guest 侧正向产出源(失败即 fail loud) */
+FILE* rosetta_guest_fopen(const char* path);
+int rosetta_guest_fileno(FILE* f);
+void rosetta_guest_getrandom(void* buf, size_t n);
 #endif
 int InternalMunmap(void* addr, unsigned long length);
 

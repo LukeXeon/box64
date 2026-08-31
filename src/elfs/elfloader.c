@@ -82,7 +82,14 @@ elfheader_t* LoadAndCheckElfHeader(FILE* f, const char* name, int exec)
     h->refcnt = 0;
 
     h->file = f;
+#ifdef ROSETTA_EMBED
+    /* [rosetta 补丁 0009] f 是 funopen 包裹的 guest fd(宿主 fileno()
+     * 恒 -1)——登记簿查回 guest fd,供 try_mmap 的 file-backed
+     * guest mmap(内容装载直通 gVisor 按需分页) */
+    h->fileno = rosetta_guest_fileno(f);
+#else
     h->fileno = fileno(f);
+#endif
 
     return h;
 }
@@ -337,11 +344,6 @@ int AllocLoadElfMemory(box64context_t* context, elfheader_t* head, int mainbin)
                 try_mmap = 0;
             if(e->p_align<box64_pagesize)
                 try_mmap = 0;
-#ifdef ROSETTA_EMBED
-            /* [rosetta 补丁 0009] 宿主 fd 无法进 gVisor mm——恒走
-             * 匿名映射 + fread 回路(内容宿主侧读,页是 guest 的) */
-            try_mmap = 0;
-#endif
             if(try_mmap) {
                 printf_dump(log_level, "Mmaping 0x%lx(0x%lx) bytes @%p with prot %x for Elf \"%s\"\n", head->multiblocks[n].size, head->multiblocks[n].asize, (void*)head->multiblocks[n].paddr, prot, head->name);
                 void* p = InternalMmap(
