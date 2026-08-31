@@ -207,11 +207,6 @@ static dynablock_t* getDBnoAlt(x64emu_t* emu, uintptr_t addr, int is32bits)
 #endif
 #endif
 
-#ifdef ROSETTA_EMBED
-/* [rosetta 补丁 0010] 钩子原型:shim 供给(abi.cc) */
-void rosetta_dispatch_stack_reset(void);
-#endif
-
 void EmuRun(x64emu_t* emu, int use_dynarec, int no_alt)
 {
     // prepare setjump for signal handling
@@ -235,12 +230,6 @@ void EmuRun(x64emu_t* emu, int use_dynarec, int no_alt)
             if ((skip = SigSetJmp(emu->jmpbuf, 1)))
             #endif
             {
-#ifdef ROSETTA_EMBED
-                /* [rosetta 补丁 0010] 投递 siglongjmp 恢复点:重置本线程
-                 * dispatch 栈持久 sp(被遗弃的分派帧回收,栈不烧穿;
-                 * transport.md v13) */
-                rosetta_dispatch_stack_reset();
-#endif
                 dynarec_log(LOG_DEBUG, "Setjmp EmuRun, fs=0x%x will %sskip dynarec next\n", emu->segs[_FS], (skip==3)?"not ":"");
                 #ifdef DYNAREC
                 if(BOX64ENV(dynarec_test)) {
