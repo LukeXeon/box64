@@ -104,7 +104,28 @@ extern sysinfo_t box64_sysinfo;
 #ifndef STATICBUILD
 void init_malloc_hook(void);
 #endif
-#if defined(ANDROID) || defined(STATICBUILD)
+#if defined(ROSETTA_EMBED)
+/* [rosetta 补丁 0011] box64 全 guest 化(ADR-0025 修订①):分配器宏族
+ * 改指 shim 供给的 guest 堆(dlmalloc mspace 跑 guest 固定 VA 带,
+ * andock shim/guestheap/)——box64 的堆与宿主堆隔离,一切分配可被
+ * sentry 解析。漏网裸调(malloc/free/strdup 直调)由构建侧 TU 强制
+ * 包含头收口(andock shim/guestheap/alloc_redirect.h)。
+ * box_realpath 留宿主:目标目录经 gofer 同路径挂载,宿主 realpath
+ * 答案与 guest 一致(ADR-0025 边界)。 */
+void* rosetta_guest_malloc(size_t n);
+void* rosetta_guest_realloc(void* p, size_t n);
+void* rosetta_guest_calloc(size_t n, size_t sz);
+void  rosetta_guest_free(void* p);
+void* rosetta_guest_memalign(size_t align, size_t n);
+char* rosetta_guest_strdup(const char* s);
+#define box_malloc      rosetta_guest_malloc
+#define box_realloc     rosetta_guest_realloc
+#define box_calloc      rosetta_guest_calloc
+#define box_free        rosetta_guest_free
+#define box_memalign    rosetta_guest_memalign
+#define box_strdup      rosetta_guest_strdup
+#define box_realpath    realpath
+#elif defined(ANDROID) || defined(STATICBUILD)
 #define box_malloc      malloc
 #define box_realloc     realloc
 #define box_calloc      calloc

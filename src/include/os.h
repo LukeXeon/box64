@@ -38,13 +38,17 @@ void WinFree(void* ptr);
 
 void* InternalMmap(void* addr, unsigned long length, int prot, int flags, int fd, ssize_t offset);
 
-/* [rosetta 补丁 0009] guest 可见分配钩子(ROSETTA_EMBED):装载期的
- * 映像段/栈分配必须进 gVisor mm——guest syscall 传进来的指针必须能被
- * sentry copyin 解析,宿主匿名映射会触 EFAULT(ADR-0014 的根本差异)。
- * shim 供给(合成 ring syscall);宿主内部簿记(arena/哈希)仍用
- * InternalMmap 宿主侧。装载期无注册 guest handler,无决投帧写。 */
+/* [rosetta 补丁 0009] guest 分配钩子(ROSETTA_EMBED):box64 的一切
+ * 映射原语(装载映像/栈/dynablock arena/簿记)进 gVisor mm——guest
+ * syscall 传进来的指针必须能被 sentry copyin 解析,宿主匿名映射会触
+ * EFAULT(ADR-0014 的根本差异);box64 的语义形状 = gVisor 上的普通
+ * arm64 程序,零宿主内核调用(ADR-0025)。shim 供给(合成 ring
+ * syscall);fd >= 0 直通 guest file-backed mmap(guest fd 语义)。
+ * InternalMmap/InternalMunmap 在 os_linux.c 内已重定向到本族;
+ * 直调 mmap/munmap/mprotect 的漏网点由构建侧 TU 强制包含头收口
+ * (andock shim/guestheap/alloc_redirect.h)。 */
 #ifdef ROSETTA_EMBED
-void* rosetta_guest_mmap(void* addr, size_t len, int prot, int flags);
+void* rosetta_guest_mmap(void* addr, size_t len, int prot, int flags, int fd, ssize_t offset);
 int rosetta_guest_mprotect(void* addr, size_t len, int prot);
 int rosetta_guest_munmap(void* addr, size_t len);
 #endif

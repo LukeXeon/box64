@@ -23,13 +23,7 @@ int CalcStackSize(box64context_t *context)
         CalcStack(context->elfs[i], &context->stacksz, &context->stackalign);
 
     //if (posix_memalign((void**)&context->stack, context->stackalign, context->stacksz)) {
-#ifdef ROSETTA_EMBED
-    /* [rosetta 补丁 0009] guest 栈进 gVisor mm(guest syscall 的栈
-     * 指针必须可被 sentry 解析);MAP_GROWSDOWN 不带(gVisor 不支持) */
-    context->stack = rosetta_guest_mmap(NULL, context->stacksz, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS);
-#else
     context->stack = mmap(NULL, context->stacksz, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS|MAP_GROWSDOWN, -1, 0);
-#endif
     if (context->stack==(void*)-1) {
         printf_log(LOG_NONE, "Cannot allocate aligned memory (0x%lx/0x%zx) for stack\n", context->stacksz, context->stackalign);
         return 1;
