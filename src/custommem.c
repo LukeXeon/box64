@@ -3134,11 +3134,74 @@ void init_custommem_helper(box64context_t* ctx)
     reserveHighMem();
 }
 
+#ifdef ROSETTA_EMBED
+/* [rosetta 补丁 0012] fork 暖启动 adoption(fork.md §5 v15):借壳
+ * 模型的 fork = 池化新壳(无宿主 fork,pthread_atfork 不触发)——
+ * 宿主 .bss 根指针与进程本地件在子壳显式重建/回种,语义形状对齐
+ * 原生 box64 宿主 fork(全部 COW 白拿,仅此类件需修补)。 */
+
+/* 进程本地初始化(子壳 adoption 用):jmptbl 默认链(子进程本地
+ * native_next)+ mutex + cur_brk——不含 rbtree 根/maps 装载/高位
+ * 预留(那些随 COW 继承/已由父壳完成)。 */
+void rosetta_custommem_init_tables(void)
+{
+    cur_brk = dlsym(RTLD_NEXT, "__curbrk");
+    init_mutexes();
+#ifdef DYNAREC
+    #ifdef JMPTABL_SHIFT4
+    for(int i=0; i<(1<<JMPTABL_SHIFT3); ++i)
+        box64_jmptbl3[i] = box64_jmptbldefault2;
+    for(int i=0; i<(1<<JMPTABL_SHIFT2); ++i)
+        box64_jmptbldefault2[i] = box64_jmptbldefault1;
+    #else
+    for(int i=0; i<(1<<JMPTABL_SHIFT2); ++i)
+        box64_jmptbl2[i] = box64_jmptbldefault1;
+    #endif
+    for(int i=0; i<(1<<JMPTABL_SHIFT1); ++i)
+        box64_jmptbldefault1[i] = box64_jmptbldefault0;
+    for(int i=0; i<(1<<JMPTABL_SHIFT0); ++i)
+        box64_jmptbldefault0[i] = (uintptr_t)native_next;
+#endif
+}
+
+/* 根抄录(父壳 boot 期;out 顺序 = rosetta_custommem_adopt 入参序,
+ * shim fork_snap.h X64Roots 前六槽对账) */
+void rosetta_custommem_roots(void** out)
+{
+    out[0] = memprot;
+    out[1] = mapallmem;
+    out[2] = blockstree;
+    out[3] = rbt_dynmem;
+    out[4] = lockaddress;
+    out[5] = mmaplist;
+}
+
+/* 根回种(子壳 adoption):继承的 rbtree/khash/arena 根(节点全在
+ * guest 内存,COW 白拿)写回宿主全局;inited 立起(不再走
+ * init_custommem_helper——那会重造空树把继承簿记顶掉)。 */
+void rosetta_custommem_adopt(void* const* roots)
+{
+    memprot = roots[0];
+    mapallmem = roots[1];
+    blockstree = roots[2];
+    rbt_dynmem = roots[3];
+    lockaddress = roots[4];
+    mmaplist = roots[5];
+    inited = 1;
+}
+
+/* atfork 修补直调(借壳模型无宿主 fork,pthread_atfork 不触发;
+ * 对齐原生 fork 子侧语义:mutex 重初始化) */
+void rosetta_custommem_atfork_child(void)
+{
+    atfork_child_custommem();
+}
+#endif
+
 void fini_custommem_helper(box64context_t *ctx)
 {
     (void)ctx;
-#ifdef TRACE_MEMSTAT
-    uintptr_t njmps = 0, njmps_in_lv1_max = 0;
+#ifdef TRACE_MEMSTAT    uintptr_t njmps = 0, njmps_in_lv1_max = 0;
     #ifdef JMPTABL_SHIFT4
     uintptr_t*** box64_jmptbl2;
     for(uintptr_t idx3 = 0; idx3 < (1<< JMPTABL_SHIFT3); ++idx3) {    

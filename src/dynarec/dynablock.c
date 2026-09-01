@@ -136,6 +136,10 @@ void FreeDynablock(dynablock_t* db, int need_lock, int need_remove)
         dynarec_log(LOG_DEBUG, " -- FreeDyrecMap(%p, %d)\n", db->actual_block, db->size);
         db->done = 0;
         db->gone = 1;
+#ifdef ROSETTA_EMBED
+        /* [rosetta 补丁 0012] 出 guest 侧块链表(未登记 = 空转) */
+        rosetta_x64_dblock_unregister(db);
+#endif
         uintptr_t db_size = db->x64_size;
         if(db_size && my_context) {
             uint32_t n = rb_dec(my_context->db_sizes, db_size, db_size+1);
@@ -360,6 +364,11 @@ dynablock_t* internalDBGetBlock(x64emu_t* emu, uintptr_t addr, int create, int n
                 else
                     block->sep[i].active = 0;
             }
+#ifdef ROSETTA_EMBED
+            /* [rosetta 补丁 0012] 建块完成即入 guest 侧块链表
+             * (fork.md §5 暖启动:子壳 adoption 的遍历源) */
+            rosetta_x64_dblock_register(block);
+#endif
         }
     }
     if(need_lock)

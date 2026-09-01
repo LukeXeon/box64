@@ -1023,6 +1023,14 @@ size_t SizeFileMapped(uintptr_t addr)
 
 int IsAddrNeedReloc(uintptr_t addr)
 {
+#ifdef ROSETTA_EMBED
+    /* [rosetta 补丁 0012] need_reloc 恒开:fork 暖启动 adoption
+     * (fork.md §5)的子壳以 ApplyRelocs 把继承块的烘焙宿主常量
+     * 重写为本进程 getConst——块必须恒带 relocs(上游仅
+     * dynacache=1 时开)。 */
+    (void)addr;
+    return 1;
+#endif
     box64env_t* env = GetCurEnvByAddr(addr);
     // TODO: this seems quite wrong and should be refactored
     int test = env->is_dynacache_overridden?env->dynacache:box64env.dynacache;

@@ -58,6 +58,20 @@ int rosetta_guest_munmap(void* addr, size_t len);
 FILE* rosetta_guest_fopen(const char* path);
 int rosetta_guest_fileno(FILE* f);
 void rosetta_guest_getrandom(void* buf, size_t n);
+/* [rosetta 补丁 0012] fork 暖启动 adoption(fork.md §5 v15):
+ * guest 侧 dynablock 链表(子壳 adoption 的遍历源;shim 实现) */
+void rosetta_x64_dblock_register(void* db);
+void rosetta_x64_dblock_unregister(void* db);
+/* 宿主 .bss 根抄录/回种 + 进程本地初始化 + atfork 直调(实现 =
+ * custommem.c/box64context.c) */
+void rosetta_custommem_roots(void** out);
+void rosetta_custommem_adopt(void* const* roots);
+void rosetta_custommem_init_tables(void);
+void rosetta_custommem_atfork_child(void);
+void rosetta_box64context_atfork_child(void);
+/* [rosetta 补丁 0012] adoption 专用信号 helper(表保留;signals.c) */
+typedef struct box64context_s box64context_t;
+void rosetta_init_signal_helper_adopt(box64context_t* context);
 #endif
 int InternalMunmap(void* addr, unsigned long length);
 

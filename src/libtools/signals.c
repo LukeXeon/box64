@@ -1787,6 +1787,22 @@ void init_signal_helper(box64context_t* context)
 #endif
 }
 
+#ifdef ROSETTA_EMBED
+/* [rosetta 补丁 0012] fork 暖启动 adoption:保留继承的 guest 信号
+ * 表(context->signals[] 不清零——原生 fork 的进程级 sigaction 语义;
+ * 冷启动时代的"子壳注册表清空"边界随之消解),宿主件(sigstack
+ * TLS key)照建。 */
+void rosetta_init_signal_helper_adopt(box64context_t* context)
+{
+    (void)context;
+    pthread_once(&sigstack_key_once, sigstack_key_alloc);
+#ifdef USE_SIGNAL_MUTEX
+    atfork_child_dynarec_prot();
+    pthread_atfork(NULL, NULL, atfork_child_dynarec_prot);
+#endif
+}
+#endif
+
 void fini_signal_helper()
 {
     /* [rosetta 补丁 0005] 处理器未安装,同样不重置(信号策略归 shim) */

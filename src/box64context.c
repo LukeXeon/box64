@@ -145,6 +145,15 @@ static void atfork_child_box64context(void)
     #endif
 }
 
+#ifdef ROSETTA_EMBED
+/* [rosetta 补丁 0012] atfork 修补直调导出(借壳模型无宿主 fork,
+ * pthread_atfork 不触发;fork.md §5 暖启动 adoption 子侧直调) */
+void rosetta_box64context_atfork_child(void)
+{
+    atfork_child_box64context();
+}
+#endif
+
 int box64_cycle_log_initialized = 0;
 
 void freeCycleLog(box64context_t* ctx)
