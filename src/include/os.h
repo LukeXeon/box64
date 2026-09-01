@@ -58,19 +58,39 @@ int rosetta_guest_munmap(void* addr, size_t len);
 FILE* rosetta_guest_fopen(const char* path);
 int rosetta_guest_fileno(FILE* f);
 void rosetta_guest_getrandom(void* buf, size_t n);
+/* [rosetta 补丁 0013] 零摆渡 guest 全局区(fork.md §5;用户定向
+ * 2026-09-01):box64 的宿主 .bss 根变量经宏重定向(各消费点
+ * 头部)落进本结构——结构住在 x64 快照页固定偏移(编译期常量
+ * 寻址),guest 内存随 fork COW 自动全带,补丁 0012 的抄录/回种
+ * 摆渡代码整类删除。**未来新增全局根变量 = 本结构加字段即享
+ * COW**,无需任何新摆渡代码。地址与 shim fork_snap.h 对账
+ * (kSnapPageAddr + kSnapGGOff,单事实源在彼)——改动必须双端
+ * 同步。 */
+#define ROSETTA_SNAP_PAGE_ADDR 0x6F000000UL /* fork_snap.h kSnapPageAddr */
+#define ROSETTA_GG_OFF 0x400UL              /* fork_snap.h kSnapGGOff */
+typedef struct box64context_s box64context_t;
+typedef struct rosetta_box64_globals_s {
+    void* memprot;        /* custommem rbtree 根(权限簿记) */
+    void* mapallmem;      /* custommem rbtree 根(全域映射簿记) */
+    void* blockstree;     /* custommem rbtree 根(块码区簿记) */
+    void* rbt_dynmem;     /* custommem rbtree 根(dynarec arena) */
+    void* lockaddress;    /* kh_lockaddress_t*(lock 前缀地址) */
+    void* mmaplist;       /* mmaplist_t*(dynarec arena 清单) */
+    void* my_alternates;  /* kh_alternate_t*(alternate 查找表) */
+    box64context_t* my_context;
+} rosetta_box64_globals_t;
+#define ROSETTA_GG ((rosetta_box64_globals_t*)(ROSETTA_SNAP_PAGE_ADDR + ROSETTA_GG_OFF))
+
 /* [rosetta 补丁 0012] fork 暖启动 adoption(fork.md §5 v15):
- * guest 侧 dynablock 链表(子壳 adoption 的遍历源;shim 实现) */
-void rosetta_x64_dblock_register(void* db);
+ * guest 侧 dynablock 链表(子壳 adoption 的遍历源;shim 实现;
+ * in_jmptbl:主块 1(子壳再登记 jmptbl)/alt 块 0(仅 relocs)) */
+void rosetta_x64_dblock_register(void* db, int in_jmptbl);
 void rosetta_x64_dblock_unregister(void* db);
-/* 宿主 .bss 根抄录/回种 + 进程本地初始化 + atfork 直调(实现 =
- * custommem.c/box64context.c) */
-void rosetta_custommem_roots(void** out);
-void rosetta_custommem_adopt(void* const* roots);
+/* 进程本地初始化 + atfork 直调(实现 = custommem.c/box64context.c) */
 void rosetta_custommem_init_tables(void);
 void rosetta_custommem_atfork_child(void);
 void rosetta_box64context_atfork_child(void);
 /* [rosetta 补丁 0012] adoption 专用信号 helper(表保留;signals.c) */
-typedef struct box64context_s box64context_t;
 void rosetta_init_signal_helper_adopt(box64context_t* context);
 #endif
 int InternalMunmap(void* addr, unsigned long length);

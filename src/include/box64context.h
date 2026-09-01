@@ -266,7 +266,15 @@ typedef struct box64context_s {
 #define mutex_unlock(A)  native_lock_storeifref_d(A, 0, (uint32_t)GetTID())
 #endif
 
+#ifdef ROSETTA_EMBED
+#include "os.h"
+/* [rosetta 补丁 0013] 零摆渡:my_context 宏重定向进 GG(os.h)——
+ * 一切既有读写原位有效,fork COW 自动全带(core.c 的定义点随之
+ * 豁免) */
+#define my_context (*((box64context_t**)&ROSETTA_GG->my_context))
+#else
 extern box64context_t *my_context; // global context
+#endif
 
 box64context_t *NewBox64Context(int argc);
 void FreeBox64Context(box64context_t** context);

@@ -19,7 +19,15 @@ typedef struct {
     #endif
 } my_alternate_t;
 KHASH_MAP_INIT_INT64(alternate, my_alternate_t)
+#ifdef ROSETTA_EMBED
+#include "os.h"
+/* [rosetta 补丁 0013] 零摆渡:alternate 查找表根宏重定向进 GG
+ * (os.h;表存储本在 guest 堆)——fork COW 自动全带,alt 机制
+ * 子壳完整可用(P20 时的第八根遗漏由此整类消解) */
+#define my_alternates (*((kh_alternate_t**)&ROSETTA_GG->my_alternates))
+#else
 static kh_alternate_t *my_alternates = NULL;
+#endif
 
 int hasAlternate(void* addr) {
     if(!my_alternates)

@@ -33,8 +33,22 @@
 #include "freq.h"
 
 // init inside dynablocks.c
+#ifdef ROSETTA_EMBED
+/* [rosetta 补丁 0013] 零摆渡:六个宿主 .bss 根宏重定向进 GG
+ * (os.h,快照页固定偏移)——左值解引用,读写原位有效,fork
+ * COW 自动全带;变量定义点随之豁免(#else 分支保留上游形态)。
+ * 宏类型:各名原类型指针的解引用(赋值/取地址语义不变)。 */
+#define memprot      (*((rbtree_t**)        &ROSETTA_GG->memprot))
+#define mapallmem    (*((rbtree_t**)        &ROSETTA_GG->mapallmem))
+#define blockstree   (*((rbtree_t**)        &ROSETTA_GG->blockstree))
+#define rbt_dynmem   (*((rbtree_t**)        &ROSETTA_GG->rbt_dynmem))
+#define mmaplist     (*((mmaplist_t**)      &ROSETTA_GG->mmaplist))
+/* lockaddress 的宏立在 KHASH_SET_INIT_INT64 之后(khash 类型须先
+ * 存在;且 KHASH 宏要 token-paste 其名,不能被宏化) */
+#else
 static mmaplist_t          *mmaplist = NULL;
 static rbtree_t            *rbt_dynmem = NULL;
+#endif
 static uint64_t jmptbl_allocated = 0, jmptbl_allocated1 = 0, jmptbl_allocated2 = 0;
 #if JMPTABL_SHIFTMAX != 16
 #error Incorect value for jumptable shift max that should be 16
@@ -56,7 +70,12 @@ static uintptr_t*          box64_jmptbldefault1[1<<JMPTABL_SHIFT1];
 static uintptr_t           box64_jmptbldefault0[1<<JMPTABL_SHIFT0];
 // lock addresses
 KHASH_SET_INIT_INT64(lockaddress)
+#ifdef ROSETTA_EMBED
+/* [rosetta 补丁 0013] lockaddress 宏(类型已就绪;零摆渡进 GG) */
+#define lockaddress (*((kh_lockaddress_t**)&ROSETTA_GG->lockaddress))
+#else
 static kh_lockaddress_t    *lockaddress = NULL;
+#endif
 #ifdef USE_CUSTOM_MUTEX
 uint32_t            mutex_prot;
 uint32_t            mutex_blocks;
@@ -69,7 +88,9 @@ pthread_mutex_t     mutex_prot;
 pthread_mutex_t     mutex_blocks;
 #endif
 //#define TRACE_MEMSTAT
+#ifndef ROSETTA_EMBED
 rbtree_t* memprot = NULL;
+#endif
 int have48bits = 0;
 static int inited = 0;
 typedef enum {
@@ -82,8 +103,10 @@ typedef enum {
     MEM_EXTERNAL = 17,
     MEM_ELF = 33
 } mem_flag_t;
+#ifndef ROSETTA_EMBED
 rbtree_t*  mapallmem = NULL;
 static rbtree_t*  blockstree = NULL;
+#endif
 
 #define BTYPE_MAP   1
 #define BTYPE_LIST  0
@@ -3135,18 +3158,22 @@ void init_custommem_helper(box64context_t* ctx)
 }
 
 #ifdef ROSETTA_EMBED
-/* [rosetta 补丁 0012] fork 暖启动 adoption(fork.md §5 v15):借壳
- * 模型的 fork = 池化新壳(无宿主 fork,pthread_atfork 不触发)——
- * 宿主 .bss 根指针与进程本地件在子壳显式重建/回种,语义形状对齐
- * 原生 box64 宿主 fork(全部 COW 白拿,仅此类件需修补)。 */
+/* [rosetta 补丁 0012/0013] fork 暖启动配套(fork.md §5):借壳
+ * 模型的 fork = 池化新壳(无宿主 fork,pthread_atfork 不触发);
+ * 0013 起六根(memprot/mapallmem/blockstree/rbt_dynmem/
+ * lockaddress/mmaplist)经宏重定向住进 GG(os.h),COW 自动全带,
+ * 抄录/回种摆渡代码删除——本区只剩进程本地初始化与 atfork 直调。 */
 
 /* 进程本地初始化(子壳 adoption 用):jmptbl 默认链(子进程本地
- * native_next)+ mutex + cur_brk——不含 rbtree 根/maps 装载/高位
- * 预留(那些随 COW 继承/已由父壳完成)。 */
+ * native_next)+ mutex + cur_brk——jmptbl 顶层数组与默认链烘焙
+ * 宿主地址,本质不可 COW(其余全局根已随 GG 白拿)。 */
 void rosetta_custommem_init_tables(void)
 {
     cur_brk = dlsym(RTLD_NEXT, "__curbrk");
     init_mutexes();
+    /* inited 立起 = 本进程 custommem 可用(internal_customFree 的
+     * !inited 早退会吞 free;根已随 GG 继承,分配器即 adopted) */
+    inited = 1;
 #ifdef DYNAREC
     #ifdef JMPTABL_SHIFT4
     for(int i=0; i<(1<<JMPTABL_SHIFT3); ++i)
@@ -3162,32 +3189,6 @@ void rosetta_custommem_init_tables(void)
     for(int i=0; i<(1<<JMPTABL_SHIFT0); ++i)
         box64_jmptbldefault0[i] = (uintptr_t)native_next;
 #endif
-}
-
-/* 根抄录(父壳 boot 期;out 顺序 = rosetta_custommem_adopt 入参序,
- * shim fork_snap.h X64Roots 前六槽对账) */
-void rosetta_custommem_roots(void** out)
-{
-    out[0] = memprot;
-    out[1] = mapallmem;
-    out[2] = blockstree;
-    out[3] = rbt_dynmem;
-    out[4] = lockaddress;
-    out[5] = mmaplist;
-}
-
-/* 根回种(子壳 adoption):继承的 rbtree/khash/arena 根(节点全在
- * guest 内存,COW 白拿)写回宿主全局;inited 立起(不再走
- * init_custommem_helper——那会重造空树把继承簿记顶掉)。 */
-void rosetta_custommem_adopt(void* const* roots)
-{
-    memprot = roots[0];
-    mapallmem = roots[1];
-    blockstree = roots[2];
-    rbt_dynmem = roots[3];
-    lockaddress = roots[4];
-    mmaplist = roots[5];
-    inited = 1;
 }
 
 /* atfork 修补直调(借壳模型无宿主 fork,pthread_atfork 不触发;

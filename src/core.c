@@ -52,7 +52,11 @@
 #include "hostext.h"
 #include "sysinfo.h"
 
+#ifndef ROSETTA_EMBED
+/* [rosetta 补丁 0013] ROSETTA_EMBED 下 my_context 经 box64context.h
+ * 宏重定向进 GG(零摆渡);本定义点豁免 */
 box64context_t *my_context = NULL;
+#endif
 extern box64env_t box64env;
 
 int box64_quit = 0;

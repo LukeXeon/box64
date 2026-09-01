@@ -265,6 +265,12 @@ dynablock_t* CreateDBnoAlt(x64emu_t* emu, uintptr_t addr, int is32bits)
     dynarec_log(LOG_DEBUG, "Will call Fillblock64 for Alt %p\n", (void*)addr);
     dynablock_t* block = FillBlock64(addr, is32bits, MAX_INSTS, 0, 1);
     if(block && block->block) block->done = 1;  // validate the alt block
+#ifdef ROSETTA_EMBED
+    /* [rosetta 补丁 0013] alt 块同入 guest 侧块链表(in_jmptbl=0:
+     * 子壳只做 relocs,不再登记 jmptbl——alt 块经 alternate 表
+     * 查找,表根已随 GG 继承) */
+    if(block) rosetta_x64_dblock_register(block, 0);
+#endif
 
     mutex_unlock(&my_context->mutex_dyndump);
 
@@ -365,9 +371,10 @@ dynablock_t* internalDBGetBlock(x64emu_t* emu, uintptr_t addr, int create, int n
                     block->sep[i].active = 0;
             }
 #ifdef ROSETTA_EMBED
-            /* [rosetta 补丁 0012] 建块完成即入 guest 侧块链表
-             * (fork.md §5 暖启动:子壳 adoption 的遍历源) */
-            rosetta_x64_dblock_register(block);
+            /* [rosetta 补丁 0012/0013] 建块完成即入 guest 侧块链表
+             * (fork.md §5 暖启动:子壳 adoption 的遍历源;in_jmptbl=1
+             * 主块 = 子壳再登记 jmptbl) */
+            rosetta_x64_dblock_register(block, 1);
 #endif
         }
     }
