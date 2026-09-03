@@ -721,13 +721,9 @@ EXPORT int my32_pthread_attr_getguardsize(x64emu_t* emu, void* attr, void* p)
 }
 EXPORT int my32_pthread_attr_getinheritsched(x64emu_t* emu, void* attr, void* p)
 {
-    /* [rosetta 补丁 0008] bionic 无此函数;低版本回 0 */
-#if defined(ANDROID) && __ANDROID_API__ < 28
-    (void)emu; (void)attr; (void)p;
-    return 0;
-#else
+    /* [rosetta 补丁 0008] 调用点上游形态;低 API 门控声明与实现
+     * 同 threads.c(主仓 compat_decls.h 前置 + rosetta_compat 库) */
     return pthread_attr_getinheritsched(get_attr(attr), p);
-#endif
 }
 EXPORT int my32_pthread_attr_getschedparam(x64emu_t* emu, void* attr, void* p)
 {
@@ -768,12 +764,7 @@ EXPORT int my32_pthread_attr_setguardsize(x64emu_t* emu, void* attr, size_t p)
 EXPORT int my32_pthread_attr_setinheritsched(x64emu_t* emu, void* attr, int p)
 {
     /* [rosetta 补丁 0008] 同 getinheritsched */
-#if defined(ANDROID) && __ANDROID_API__ < 28
-    (void)emu; (void)attr; (void)p;
-    return 0;
-#else
     return pthread_attr_setinheritsched(get_attr(attr), p);
-#endif
 }
 EXPORT int my32_pthread_attr_setschedparam(x64emu_t* emu, void* attr, void* param)
 {

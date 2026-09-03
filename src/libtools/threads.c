@@ -14,18 +14,10 @@
 #include "threads.h"
 #include "emu/x64emu_private.h"
 #include "x64emu.h"
-/* [rosetta 补丁 0007 修订³ M4] bionic 缺口符号统一 = 裸符号链接解析
- * (compat 库提供定义;调用点保持上游形态——前缀改名方案退役,
- * 漏改 threads32.c/生成表面即旧方案链接缺项根因)。本 include 随之
- * 删除;实现见 rosetta-ng/native/shim/compat/bionic_compat.c。 */
-#if defined(__ANDROID__) && __ANDROID_API__ < 28
-/* 修订⁴:android-26 平台头将下列声明随函数 API 门控(<28 不可见),
- * bionic_compat 同形自声明(实现 = bionic 直译,行为全 API 一致)。 */
-int pthread_attr_getinheritsched(const pthread_attr_t*, int*);
-int pthread_attr_setinheritsched(pthread_attr_t*, int);
-int pthread_mutexattr_getprotocol(const pthread_mutexattr_t*, int*);
-int pthread_mutexattr_setprotocol(pthread_mutexattr_t*, int);
-#endif
+/* [rosetta 补丁 0007] bionic 缺口符号:调用点保持上游形态(裸调),
+ * 声明 = 主仓 shim/compat/compat_decls.h(构建期 -include 前置,
+ * 声明面单一事实源);实现 = rosetta_compat 静态库(bionic 本体
+ * 直译,裸符号 hidden,最终链接解析)。 */
 #include "box64stack.h"
 #include "box64cpu.h"
 #include "box64cpu_util.h"
