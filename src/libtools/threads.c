@@ -14,11 +14,10 @@
 #include "threads.h"
 #include "emu/x64emu_private.h"
 #include "x64emu.h"
-#if defined(ANDROID)
-/* [rosetta 补丁 0007 修订] bionic API 缺口由 compat 库统一供给
- * (docs/spec/bionic-compat.md;与 bionic 逐行等价,不分 __ANDROID_API__ 分支) */
-#include "compat/bionic_compat.h"
-#endif
+/* [rosetta 补丁 0007 修订³ M4] bionic 缺口符号统一 = 裸符号链接解析
+ * (compat 库提供定义;调用点保持上游形态——前缀改名方案退役,
+ * 漏改 threads32.c/生成表面即旧方案链接缺项根因)。本 include 随之
+ * 删除;实现见 rosetta-ng/native/shim/compat/bionic_compat.c。 */
 #include "box64stack.h"
 #include "box64cpu.h"
 #include "box64cpu_util.h"
@@ -425,7 +424,7 @@ EXPORT int my_pthread_attr_getinheritsched(x64emu_t* emu, pthread_attr_t* attr, 
 	/* [rosetta 补丁 0007 修订] compat 统一供给(语义 = bionic) */
 	(void)emu;
 	PTHREAD_ATTR_ALIGN(attr);
-	return rosetta_compat_pthread_attr_getinheritsched(PTHREAD_ATTR(attr), sched);
+	return pthread_attr_getinheritsched(PTHREAD_ATTR(attr), sched);
 #elif !defined(TERMUX)
 	(void)emu;
 	PTHREAD_ATTR_ALIGN(attr);
@@ -540,7 +539,7 @@ EXPORT int my_pthread_attr_setinheritsched(x64emu_t* emu, pthread_attr_t* attr, 
 	/* [rosetta 补丁 0007 修订] compat 统一供给(语义 = bionic) */
 	(void)emu;
 	PTHREAD_ATTR_ALIGN(attr);
-	int ret = rosetta_compat_pthread_attr_setinheritsched(PTHREAD_ATTR(attr), sched);
+	int ret = pthread_attr_setinheritsched(PTHREAD_ATTR(attr), sched);
 	PTHREAD_ATTR_UNALIGN(attr);
 	return ret;
 #elif !defined(TERMUX)
@@ -1060,7 +1059,7 @@ EXPORT int my_pthread_mutexattr_getprotocol(x64emu_t* emu, my_mutexattr_t *attr,
 	(void)emu;
 	my_mutexattr_t mattr = {0};
 	mattr.x86 = attr->x86;
-	int ret = rosetta_compat_pthread_mutexattr_getprotocol(&mattr.nat, p);
+	int ret = pthread_mutexattr_getprotocol(&mattr.nat, p);
 	attr->x86 = mattr.x86;
 	return ret;
 #elif !defined(TERMUX)
@@ -1132,7 +1131,7 @@ EXPORT int my_pthread_mutexattr_setprotocol(x64emu_t* emu, my_mutexattr_t *attr,
 	(void)emu;
 	my_mutexattr_t mattr = {0};
 	mattr.x86 = attr->x86;
-	int ret = rosetta_compat_pthread_mutexattr_setprotocol(&mattr.nat, p);
+	int ret = pthread_mutexattr_setprotocol(&mattr.nat, p);
 	attr->x86 = mattr.x86;
 	return ret;
 #elif !defined(TERMUX)
