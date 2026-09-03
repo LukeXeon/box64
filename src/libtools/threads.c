@@ -18,6 +18,14 @@
  * (compat 库提供定义;调用点保持上游形态——前缀改名方案退役,
  * 漏改 threads32.c/生成表面即旧方案链接缺项根因)。本 include 随之
  * 删除;实现见 rosetta-ng/native/shim/compat/bionic_compat.c。 */
+#if defined(__ANDROID__) && __ANDROID_API__ < 28
+/* 修订⁴:android-26 平台头将下列声明随函数 API 门控(<28 不可见),
+ * bionic_compat 同形自声明(实现 = bionic 直译,行为全 API 一致)。 */
+int pthread_attr_getinheritsched(const pthread_attr_t*, int*);
+int pthread_attr_setinheritsched(pthread_attr_t*, int);
+int pthread_mutexattr_getprotocol(const pthread_mutexattr_t*, int*);
+int pthread_mutexattr_setprotocol(pthread_mutexattr_t*, int);
+#endif
 #include "box64stack.h"
 #include "box64cpu.h"
 #include "box64cpu_util.h"
