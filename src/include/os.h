@@ -63,11 +63,20 @@ void rosetta_guest_getrandom(void* buf, size_t n);
  * 头部)落进本结构——结构住在 x64 快照页固定偏移(编译期常量
  * 寻址),guest 内存随 fork COW 自动全带,补丁 0012 的抄录/回种
  * 摆渡代码整类删除。**未来新增全局根变量 = 本结构加字段即享
- * COW**,无需任何新摆渡代码。地址与 shim fork_snap.h 对账
- * (kSnapPageAddr + kSnapGGOff,单事实源在彼)——改动必须双端
- * 同步。 */
-#define ROSETTA_SNAP_PAGE_ADDR 0x6F000000UL /* fork_snap.h kSnapPageAddr */
-#define ROSETTA_GG_OFF 0x400UL              /* fork_snap.h kSnapGGOff */
+ * COW**,无需任何新摆渡代码。地址常量单事实源 = rosetta 主仓
+ * src/rust/src/frontx64/mod.rs(cbindgen 生成头 x64_snap_gen.h,
+ * 构建期派生入 build/generated)——改动只动彼端。 */
+#if __has_include("x64_snap_gen.h")
+#include "x64_snap_gen.h"
+#else
+/* bindgen 解析面(rust build.rs 读本头时生成头尚未就位——鸡生蛋):
+ * 真值恒由 x64_snap_gen.h 供给,本副本仅供头文件宏解析,任何编译
+ * 产物不走此臂 */
+#define SNAP_PAGE_ADDR 0x6F000000UL
+#define SNAP_GG_OFF 0x400UL
+#endif
+#define ROSETTA_SNAP_PAGE_ADDR SNAP_PAGE_ADDR /* frontx64 SNAP_PAGE_ADDR */
+#define ROSETTA_GG_OFF SNAP_GG_OFF            /* frontx64 SNAP_GG_OFF */
 typedef struct box64context_s box64context_t;
 typedef struct rosetta_box64_globals_s {
     void* memprot;        /* custommem rbtree 根(权限簿记) */
