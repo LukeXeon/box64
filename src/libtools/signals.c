@@ -1801,6 +1801,17 @@ void rosetta_init_signal_helper_adopt(box64context_t* context)
     pthread_atfork(NULL, NULL, atfork_child_dynarec_prot);
 #endif
 }
+
+/* [rosetta 补丁 0014] 线程 sigstack TLS 观察口:fork/线程的子侧
+ * altstack 继承摆渡需要父侧读(嵌入态 guest sigaltstack(131) 全走
+ * gVisor 语义 + 本 TLS 簿记镜像,宿主 sigaltstack 不在链上,本
+ * TLS 即壳侧唯一真相);写侧复用上游 my_sigaltstack,不增新面。
+ * 返回指针寿命 = 本线程 TLS(调用方只读拷贝,不持有)。 */
+x64_stack_t* rosetta_sigstack_peek(void)
+{
+    pthread_once(&sigstack_key_once, sigstack_key_alloc);
+    return (x64_stack_t*)pthread_getspecific(sigstack_key);
+}
 #endif
 
 void fini_signal_helper()
