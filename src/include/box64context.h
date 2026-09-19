@@ -266,7 +266,13 @@ typedef struct box64context_s {
 #define mutex_unlock(A)  native_lock_storeifref_d(A, 0, (uint32_t)GetTID())
 #endif
 
+#ifdef ROSETTA_EMBED
+#include "os.h"
+
+#define my_context (*((box64context_t**)&ROSETTA_GG->my_context))
+#else
 extern box64context_t *my_context; // global context
+#endif
 
 box64context_t *NewBox64Context(int argc);
 void FreeBox64Context(box64context_t** context);

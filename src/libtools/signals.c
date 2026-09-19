@@ -1760,6 +1760,8 @@ void init_signal_helper(box64context_t* context)
     for(int i=0; i<=MAX_SIGNAL; ++i) {
         context->signals[i] = 0;    // SIG_DFL
     }
+
+#ifndef ROSETTA_EMBED
     struct sigaction action = {0};
     action.sa_flags = SA_SIGINFO | SA_RESTART | SA_NODEFER;
     action.sa_sigaction = my_box64signalhandler;
@@ -1773,6 +1775,7 @@ void init_signal_helper(box64context_t* context)
     action.sa_flags = SA_SIGINFO | SA_RESTART | SA_NODEFER;
     action.sa_sigaction = my_box64signalhandler;
     sigaction(SIGABRT, &action, NULL);
+#endif
 
     pthread_once(&sigstack_key_once, sigstack_key_alloc);
 #ifdef USE_SIGNAL_MUTEX
@@ -1781,12 +1784,31 @@ void init_signal_helper(box64context_t* context)
 #endif
 }
 
+void rosetta_init_signal_helper_adopt(box64context_t* context)
+{
+    (void)context;
+    pthread_once(&sigstack_key_once, sigstack_key_alloc);
+#ifdef USE_SIGNAL_MUTEX
+    atfork_child_dynarec_prot();
+    pthread_atfork(NULL, NULL, atfork_child_dynarec_prot);
+#endif
+}
+
+x64_stack_t* rosetta_sigstack_peek(void)
+{
+    pthread_once(&sigstack_key_once, sigstack_key_alloc);
+    return (x64_stack_t*)pthread_getspecific(sigstack_key);
+}
+
 void fini_signal_helper()
 {
+
+#ifndef ROSETTA_EMBED
     signal(SIGSEGV, SIG_DFL);
     signal(SIGBUS, SIG_DFL);
     signal(SIGILL, SIG_DFL);
     signal(SIGABRT, SIG_DFL);
+#endif
 }
 
 #ifdef NEED_SIG_CONV

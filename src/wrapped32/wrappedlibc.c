@@ -50,6 +50,8 @@
 #include <sched.h>
 
 #include "wrappedlibs.h"
+/* 死码守卫(bionic 缺口符号;wrapped 表不绑定 ⇒ 不可达;桩 = fail-loud) */
+#include "slibc/dead_stub.h"
 
 #include "box64stack.h"
 #include "x64emu.h"
@@ -1791,19 +1793,47 @@ static void convert_glob_to_64(void* d, void* s, int is64)
 
 EXPORT int32_t my32_glob(x64emu_t *emu, void* pat, int32_t flags, void* errfnc, void* pglob)
 {
+
+#if defined(ANDROID) && __ANDROID_API__ < 28
+    (void)emu; (void)pat; (void)flags; (void)errfnc; (void)pglob;
+    return -1;
+#else
+#if defined(ANDROID)
+    glob_t glob_l = {0};
+#else
     glob64_t glob_l = {0};
+#endif
     if(flags & GLOB_ALTDIRFUNC) printf_log(LOG_NONE, "Error: using unsupport GLOB_ALTDIRFUNC in glob\n");
     if(flags&(1<<5))    // GLOB_APPEND is used, so convert also before
         convert_glob_to_64(&glob_l, pglob, 0);
+#if defined(ANDROID)
+    int ret = glob(pat, flags, findgloberrFct(errfnc), &glob_l);
+#else
     int ret = glob64(pat, flags, findgloberrFct(errfnc), &glob_l);
+#endif
     convert_glob_to_32(pglob, &glob_l, 0);
     return ret;
+#endif
 }
 EXPORT void my32_globfree(x64emu_t* emu, void* pglob)
 {
+
+#if defined(ANDROID) && __ANDROID_API__ < 28
+    (void)emu; (void)pglob;
+    return;
+#else
+#if defined(ANDROID)
+    glob_t glob_l = {0};
+#else
     glob64_t glob_l = {0};
+#endif
     convert_glob_to_64(&glob_l, pglob, 0);
+#if defined(ANDROID)
+    globfree(&glob_l);
+#else
     globfree64(&glob_l);
+#endif
+#endif
 }
 #ifndef ANDROID
 EXPORT int32_t my32_glob64(x64emu_t *emu, void* pat, int32_t flags, void* errfnc, void* pglob)
@@ -2181,65 +2211,110 @@ void convert_file_action_to_32(void* d, void* s)
 {
     posix_spawn_file_actions_32_t* dst = d;
     posix_spawn_file_actions_t* src = s;
+
+#if defined(ANDROID)
+    (void)dst; (void)src;
+#else
     dst->__allocated = src->__allocated;
     dst->__used = src->__used;
     dst->__actions = to_ptrv(src->__actions);
+#endif
 }
 void convert_file_action_to_64(void* d, void* s)
 {
     posix_spawn_file_actions_t* dst = d;
     posix_spawn_file_actions_32_t* src = s;
+
+#if defined(ANDROID)
+    (void)dst; (void)src;
+#else
     dst->__actions = from_ptrv(src->__actions);
     dst->__used = src->__used;
     dst->__allocated = src->__allocated;
+#endif
 }
 
 EXPORT int my32_posix_spawn_file_actions_init(x64emu_t* emu, posix_spawn_file_actions_32_t* action)
 {
+
+#if defined(ANDROID) && __ANDROID_API__ < 28
+    (void)emu; (void)action;
+    return -1;
+#else
     posix_spawn_file_actions_t action_l;
     int ret = posix_spawn_file_actions_init(&action_l);
     convert_file_action_to_32(action, &action_l);
     return ret;
+#endif
 }
 EXPORT int my32_posix_spawn_file_actions_addopen(x64emu_t* emu, posix_spawn_file_actions_32_t* action, int fides, const char* path, int oflag, int modes)
 {
+
+#if defined(ANDROID) && __ANDROID_API__ < 28
+    (void)emu; (void)action; (void)fides; (void)path; (void)oflag; (void)modes;
+    return -1;
+#else
     posix_spawn_file_actions_t action_l = {0};
     convert_file_action_to_64(&action_l, action);
     int ret = posix_spawn_file_actions_addopen(&action_l, fides, path, oflag, modes);
     convert_file_action_to_32(action, &action_l);
     return ret;
+#endif
 }
 
 EXPORT int my32_posix_spawn_file_actions_addclose(x64emu_t* emu, posix_spawn_file_actions_32_t* action, int fides)
 {
+
+#if defined(ANDROID) && __ANDROID_API__ < 28
+    (void)emu; (void)action; (void)fides;
+    return -1;
+#else
     posix_spawn_file_actions_t action_l = {0};
     convert_file_action_to_64(&action_l, action);
     int ret = posix_spawn_file_actions_addclose(&action_l, fides);
     convert_file_action_to_32(action, &action_l);
     return ret;
+#endif
 }
 
 EXPORT int my32_posix_spawn_file_actions_adddup2(x64emu_t* emu, posix_spawn_file_actions_32_t* action, int fides, int newfides)
 {
+
+#if defined(ANDROID) && __ANDROID_API__ < 28
+    (void)emu; (void)action; (void)fides; (void)newfides;
+    return -1;
+#else
     posix_spawn_file_actions_t action_l = {0};
     convert_file_action_to_64(&action_l, action);
     int ret = posix_spawn_file_actions_adddup2(&action_l, fides, newfides);
     convert_file_action_to_32(action, &action_l);
     return ret;
+#endif
 }
 
 EXPORT int my32_posix_spawn_file_actions_destroy(x64emu_t* emu, posix_spawn_file_actions_32_t* action)
 {
+
+#if defined(ANDROID) && __ANDROID_API__ < 28
+    (void)emu; (void)action;
+    return -1;
+#else
     posix_spawn_file_actions_t action_l;
     convert_file_action_to_64(&action_l, action);
     int ret = posix_spawn_file_actions_destroy(&action_l);
     convert_file_action_to_32(action, &action_l);   // just in case?
     return ret;
+#endif
 }
 
 EXPORT int32_t my32_posix_spawn(x64emu_t* emu, pid_t* pid, const char* fullpath,
     posix_spawn_file_actions_32_t *actions_s, const posix_spawnattr_t* attrp,  ptr_t const argv[], ptr_t const envp[])
 {
+
+#if defined(ANDROID) && __ANDROID_API__ < 28
+    (void)emu; (void)pid; (void)fullpath; (void)actions_s; (void)attrp; (void)argv; (void)envp;
+    return -1;
+#else
     posix_spawn_file_actions_t actions_l = {0};
     posix_spawn_file_actions_t *actions = NULL;
     if(actions_s) {
@@ -2284,11 +2359,17 @@ EXPORT int32_t my32_posix_spawn(x64emu_t* emu, pid_t* pid, const char* fullpath,
     for(int i=0; i<=n; ++i)
         newargv[i] = from_ptrv(argv[i]);
     return posix_spawn(pid, fullpath, actions, attrp, newargv, newenvp);
+#endif
 }
 
 EXPORT int32_t my32_posix_spawnp(x64emu_t* emu, pid_t* pid, const char* path,
     posix_spawn_file_actions_32_t *actions_s, const posix_spawnattr_t* attrp,  ptr_t const argv[], ptr_t const envp[])
 {
+
+#if defined(ANDROID) && __ANDROID_API__ < 28
+    (void)emu; (void)pid; (void)path; (void)actions_s; (void)attrp; (void)argv; (void)envp;
+    return -1;
+#else
     posix_spawn_file_actions_t actions_l = {0};
     posix_spawn_file_actions_t *actions = NULL;
     if(actions_s) {
@@ -2336,6 +2417,7 @@ EXPORT int32_t my32_posix_spawnp(x64emu_t* emu, pid_t* pid, const char* path,
     for(int i=0; i<=n; ++i)
         newargv[i] = from_ptrv(argv[i]);
     return posix_spawnp(pid, path, actions, attrp, newargv, newenvp);
+#endif
 }
 
 EXPORT void my32__Jv_RegisterClasses() {}

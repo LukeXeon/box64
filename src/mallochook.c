@@ -1098,4 +1098,12 @@ void init_malloc_hook() {}
 void startMallocHook() {}
 void endMallocHook() {}
 void checkHookedSymbols(elfheader_t* h) {}
+
+void* box32_calloc(size_t n, size_t s) { return calloc(n, s); }
+void* box32_malloc(size_t s) { return malloc(s); }
+void* box32_realloc(void* p, size_t s) { return realloc(p, s); }
+void box32_free(void* p) { free(p); }
+void* box32_memalign(size_t align, size_t s) { void* p = NULL; return (posix_memalign(&p, align, s)==0)?p:NULL; }
+size_t box32_malloc_usable_size(void* p) { return malloc_usable_size(p); }
+char* box32_strdup(const char* s) { return strdup(s); }
 #endif //!ANDROID

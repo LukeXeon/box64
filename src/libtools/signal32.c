@@ -277,6 +277,10 @@ typedef union my_sigval32
   ptr_t sival_ptr;
 } my_sigval32_t;
 
+#if defined(ANDROID)
+#undef si_tid
+#endif
+
 typedef struct __attribute__((packed, aligned(4))) my_siginfo32_s
 {
     int si_signo;
@@ -307,7 +311,12 @@ typedef struct __attribute__((packed, aligned(4))) my_siginfo32_s
     } _sigchld;
 	struct {
 	    ptr_t __si_addr;
+
+#if defined(ANDROID)
+	    int _si_pkey;
+#else
 	    __SI_SIGFAULT_ADDL
+#endif
 	    int16_t __si_addr_lsb;
 	    union {
             struct {

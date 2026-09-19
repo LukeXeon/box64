@@ -85,12 +85,28 @@ void SetupInitialStack(x64emu_t *emu)
     // push some AuxVector stuffs
     PushString(emu, "x86_64");
     uintptr_t p_x86_64 = R_RSP;
+#ifdef ROSETTA_EMBED
+
+    uintptr_t p_random = 0;
+    {
+        for (int i=0; i<4; ++i)
+            Push32(emu, 0);
+        p_random = R_RSP;
+        size_t got = 0;
+        while (got < 16) {
+            ssize_t r = getrandom((void*)(p_random + got), 16 - got, 0);
+            if (r <= 0) break;
+            got += (size_t)r;
+        }
+    }
+#else
     uintptr_t p_random = real_getauxval(25);
     if(!p_random) {
         for (int i=0; i<4; ++i)
             Push32(emu, random());
         p_random = R_RSP;
     }
+#endif
     // align
     tmp = (R_RSP)&~(emu->context->stackalign-1);
     memset((void*)tmp, 0, R_RSP-tmp);
@@ -121,11 +137,18 @@ void SetupInitialStack(x64emu_t *emu)
     elfheader_t* main = my_context->elfs[0];
     Push64(emu, 0); Push64(emu, 0);                         //AT_NULL(0)=0
     Push64(emu, main->fileno); Push64(emu, 2);   //AT_EXECFD=file desciptor of program
+#ifdef ROSETTA_EMBED
+
+    Push64(emu, (uintptr_t)main->image + ((Elf64_Ehdr*)main->image)->e_phoff); Push64(emu, 3);
+#else
     Push64(emu, (uintptr_t)main->PHEntries._64); Push64(emu, 3);                          //AT_PHDR(3)=address of the PH of the executable
+#endif
     Push64(emu, sizeof(Elf64_Phdr)); Push64(emu, 4);                          //AT_PHENT(4)=size of PH entry
     Push64(emu, main->numPHEntries); Push64(emu, 5);                          //AT_PHNUM(5)=number of elf headers
     Push64(emu, box64_pagesize); Push64(emu, 6);            //AT_PAGESZ(6)
     //Push64(emu, real_getauxval(7)); Push64(emu, 7);         //AT_BASE(7)=ld-2.27.so start (in memory)
+
+    Push64(emu, 0); Push64(emu, 7);
     Push64(emu, 0); Push64(emu, 8);                         //AT_FLAGS(8)=0
     Push64(emu, R_RIP); Push64(emu, 9);                     //AT_ENTRY(9)=entrypoint
     Push64(emu, real_getauxval(11)); Push64(emu, 11);       //AT_UID(11)

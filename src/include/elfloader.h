@@ -46,6 +46,8 @@ int AllocLoadElfMemory(box64context_t* context, elfheader_t* head, int mainbin);
 void FreeElfMemory(elfheader_t* head);
 int isElfHasNeededVer(elfheader_t* head, const char* libname, elfheader_t* verneeded);
 int hasElfInterp(elfheader_t* head);
+
+const char* rosetta_elf_interp_name(elfheader_t* head);
 int RelocateElf(lib_t *maplib, lib_t* local_maplib, int bindnow, int deepbind, elfheader_t* head);
 int RelocateElfPlt(lib_t *maplib, lib_t* local_maplib, int bindnow, int deepbind, elfheader_t* head);
 void CalcStack(elfheader_t* h, uint64_t* stacksz, size_t* stackalign);

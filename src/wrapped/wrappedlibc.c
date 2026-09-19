@@ -68,6 +68,8 @@ extern int _nl_msg_cat_cntr __attribute__((weak));
 #undef LOG_DEBUG
 
 #include "wrappedlibs.h"
+/* 死码守卫(bionic 缺口符号;wrapped 表不绑定 ⇒ 不可达;桩 = fail-loud) */
+#include "slibc/dead_stub.h"
 
 #include "os.h"
 #include "box64stack.h"
@@ -3180,6 +3182,11 @@ EXPORT int32_t my_execlp(x64emu_t* emu, const char* path)
 EXPORT int32_t my_posix_spawn(x64emu_t* emu, pid_t* pid, const char* fullpath,
     const posix_spawn_file_actions_t *actions, const posix_spawnattr_t* attrp,  char* const argv[], char* const envp[])
 {
+
+#if defined(ROSETTA_EMBED)
+    (void)emu; (void)pid; (void)fullpath; (void)actions; (void)attrp; (void)argv; (void)envp;
+    return -1;
+#else
     int self = isProcSelf(fullpath, "exe");
     int x64 = FileIsX64ELF(fullpath);
     int x86 = my_context->box86path?FileIsX86ELF(fullpath):0;
@@ -3215,12 +3222,18 @@ EXPORT int32_t my_posix_spawn(x64emu_t* emu, pid_t* pid, const char* fullpath,
     } else
         ret = posix_spawn(pid, fullpath, actions, attrp, argv, envp);
     return ret;
+#endif
 }
 
 // execvp should use PATH to search for the program first
 EXPORT int32_t my_posix_spawnp(x64emu_t* emu, pid_t* pid, const char* path,
     const posix_spawn_file_actions_t *actions, const posix_spawnattr_t* attrp,  char* const argv[], char* const envp[])
 {
+
+#if defined(ROSETTA_EMBED)
+    (void)emu; (void)pid; (void)path; (void)actions; (void)attrp; (void)argv; (void)envp;
+    return -1;
+#else
     // need to use BOX64_PATH / PATH here...
     char* fullpath = ResolveFileSoft(path, &my_context->box64_path);
     // use fullpath...
@@ -3260,6 +3273,7 @@ EXPORT int32_t my_posix_spawnp(x64emu_t* emu, pid_t* pid, const char* path,
         ret = posix_spawnp(pid, path, actions, attrp, argv, envp);
     box_free(fullpath);
     return ret;
+#endif
 }
 
 EXPORT void my__Jv_RegisterClasses() {}

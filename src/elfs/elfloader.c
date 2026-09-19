@@ -130,6 +130,15 @@ int hasElfInterp(elfheader_t* head)
     return 0;
 }
 
+const char* rosetta_elf_interp_name(elfheader_t* head)
+{
+    if(!head || box64_is32bits || !head->image) return NULL;
+    for (size_t i=0; i<head->numPHEntries; ++i)
+        if(head->PHEntries._64[i].p_type == PT_INTERP)
+            return (const char*)head->image + head->PHEntries._64[i].p_offset;
+    return NULL;
+}
+
 int CalcLoadAddr(elfheader_t* head)
 {
     head->memsz = 0;
@@ -1838,14 +1847,25 @@ void CreateMemorymapFile(box64context_t* context, int fd)
     // also anonymising current stack
     // and setting emulated stack as the current one
 
+    /* [rosetta 补丁 0021] 跨境缓冲落 **guest 堆**:路径字面量(宿主
+     * .rodata)、getline 的 n 出参(宿主栈)、行拼装缓冲(宿主栈)——
+     * 三者都过桥面,fopen/getline/write 只解析 guest VA。 */
     char* line = NULL;
-    size_t len = 0;
-    char buff[1024];
+    size_t* len = (size_t*)box_malloc(sizeof(size_t));
+    char* buff = (char*)box_malloc(1024);
+    char* mapspath = box_strdup("/proc/self/maps");
     int dummy;
-    FILE* f = fopen("/proc/self/maps", "r");
-    if(!f)
+    if(!len || !buff || !mapspath) {
+        box_free(len); box_free(buff); box_free(mapspath);
         return;
-    while(getline(&line, &len, f)>0) {
+    }
+    *len = 0;
+    FILE* f = fopen(mapspath, "r");
+    if(!f) {
+        box_free(len); box_free(buff); box_free(mapspath);
+        return;
+    }
+    while(getline(&line, len, f)>0) {
         // line is like
         // aaaadd750000-aaaadd759000 r-xp 00000000 103:02 13386730                  /usr/bin/cat
         uintptr_t start, end;
@@ -1870,6 +1890,10 @@ void CreateMemorymapFile(box64context_t* context, int fd)
         }
     }
     fclose(f);
+    box_free(line);      /* musl getline 分配 = guest 堆(free 同源) */
+    box_free(len);
+    box_free(buff);
+    box_free(mapspath);
     (void)dummy;
 }
 

@@ -22,16 +22,22 @@ static int event_fd[NEVENTS] = {-1};
 void addInputEventFD(int fd)
 {
     if(fd<0) return;
-    char fullname[MAX_PATH] = {0};
-    char buf[128];
+    /* [rosetta 补丁 0021] 跨境缓冲落 **guest 堆**(readlink 过桥面)。 */
+    char* fullname = (char*)box_malloc(MAX_PATH);
+    char* buf = (char*)box_malloc(128);
+    if(!fullname || !buf) { box_free(fullname); box_free(buf); return; }
+    fullname[0] = 0;
     sprintf(buf, "/proc/self/fd/%d", fd);
-    ssize_t r = readlink(buf, fullname, sizeof(fullname) - 1);
-    if(r<0) return;
+    ssize_t r = readlink(buf, fullname, MAX_PATH - 1);
+    if(r<0) { box_free(fullname); box_free(buf); return; }
+    fullname[r] = 0;
     #define INPUT_EVENT "/dev/input/event"
     if(strstr(fullname, INPUT_EVENT)==fullname)
         if(n_event_fd<NEVENTS) {
             event_fd[n_event_fd++] = fd;
         }
+    box_free(fullname);
+    box_free(buf);
 }
 
 void removeInputEventFD(int fd)

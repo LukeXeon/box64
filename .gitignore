@@ -94,3 +94,4 @@ box64-bundle-x86-libs.sha256
 
 # Python
 __pycache__/
+.idea/

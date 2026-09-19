@@ -19,7 +19,13 @@ typedef struct {
     #endif
 } my_alternate_t;
 KHASH_MAP_INIT_INT64(alternate, my_alternate_t)
+#ifdef ROSETTA_EMBED
+#include "os.h"
+
+#define my_alternates (*((kh_alternate_t**)&ROSETTA_GG->my_alternates))
+#else
 static kh_alternate_t *my_alternates = NULL;
+#endif
 
 int hasAlternate(void* addr) {
     if(!my_alternates)

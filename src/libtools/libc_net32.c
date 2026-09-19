@@ -457,7 +457,22 @@ EXPORT int my32_getprotobyname_r(x64emu_t* emu, void* name,struct protoent_32* r
 {
     struct protoent ret_l = {0};
     struct protoent *result_l = NULL;
-    int r = getprotobyname_r(name, &ret_l, buff, buflen, &result_l);
+    int r = 0;
+
+#if defined(ANDROID)
+    (void)buff; (void)buflen;
+    struct protoent* p_l = getprotobyname(name);
+    if(!p_l) {
+        *result = 0;
+        return -1;
+    }
+    result_l = &ret_l;
+    ret_l.p_name = p_l->p_name;
+    ret_l.p_aliases = p_l->p_aliases;
+    ret_l.p_proto = p_l->p_proto;
+#else
+    r = getprotobyname_r(name, &ret_l, buff, buflen, &result_l);
+#endif
     if(!result_l)
         *result = 0;
     else
@@ -485,7 +500,22 @@ EXPORT int my32_getprotobynumber_r(x64emu_t* emu, int proto,struct protoent_32* 
 {
     struct protoent ret_l = {0};
     struct protoent *result_l = NULL;
-    int r = getprotobynumber_r(proto, &ret_l, buff, buflen, &result_l);
+    int r = 0;
+
+#if defined(ANDROID)
+    (void)buff; (void)buflen;
+    struct protoent* p_l = getprotobynumber(proto);
+    if(!p_l) {
+        *result = 0;
+        return -1;
+    }
+    result_l = &ret_l;
+    ret_l.p_name = p_l->p_name;
+    ret_l.p_aliases = p_l->p_aliases;
+    ret_l.p_proto = p_l->p_proto;
+#else
+    r = getprotobynumber_r(proto, &ret_l, buff, buflen, &result_l);
+#endif
     if(!result_l)
         *result = 0;
     else
@@ -553,6 +583,11 @@ typedef struct my_res_state_32_s {
 void* convert_res_state_to_32(void* d, void* s)
 {
     if(!d || !s) return NULL;
+
+#if defined(ANDROID)
+    memset(d, 0, sizeof(my_res_state_32_t));
+    return d;
+#else
     struct __res_state* src = s;
     my_res_state_32_t* dst = d;
 
@@ -578,11 +613,17 @@ void* convert_res_state_to_32(void* d, void* s)
     memmove(dst->_u.pad, src->_u.pad, sizeof(dst->_u.pad));
 
     return dst;
+#endif
 }
 
 void* convert_res_state_to_64(void* d, void* s)
 {
     if(!d || !s) return NULL;
+
+#if defined(ANDROID)
+    memset(d, 0, 768);
+    return d;
+#else
     my_res_state_32_t* src = s;
     struct __res_state* dst = d;
 
@@ -608,10 +649,16 @@ void* convert_res_state_to_64(void* d, void* s)
     dst->retrans = src->retrans;
 
     return dst;
+#endif
 }
 
 EXPORT void* my32___res_state(x64emu_t* emu)
 {
+
+#if defined(ANDROID)
+    (void)emu;
+    return NULL;
+#else
     if(emu->res_state_64)   // update res?
         convert_res_state_to_64(emu->res_state_64, emu->res_state_32);
     void* ret = __res_state();
@@ -624,6 +671,7 @@ EXPORT void* my32___res_state(x64emu_t* emu)
     }
     convert_res_state_to_32(emu->res_state_32, emu->res_state_64);
     return emu->res_state_32;
+#endif
 }
 
 /*EXPORT void my32___res_iclose(x64emu_t* emu, void* s, int f)

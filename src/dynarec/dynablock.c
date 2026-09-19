@@ -136,6 +136,7 @@ void FreeDynablock(dynablock_t* db, int need_lock, int need_remove)
         dynarec_log(LOG_DEBUG, " -- FreeDyrecMap(%p, %d)\n", db->actual_block, db->size);
         db->done = 0;
         db->gone = 1;
+        rosetta_x64_dblock_unregister(db);
         uintptr_t db_size = db->x64_size;
         if(db_size && my_context) {
             uint32_t n = rb_dec(my_context->db_sizes, db_size, db_size+1);
@@ -261,6 +262,7 @@ dynablock_t* CreateDBnoAlt(x64emu_t* emu, uintptr_t addr, int is32bits)
     dynarec_log(LOG_DEBUG, "Will call Fillblock64 for Alt %p\n", (void*)addr);
     dynablock_t* block = FillBlock64(addr, is32bits, MAX_INSTS, 0, 1);
     if(block && block->block) block->done = 1;  // validate the alt block
+    if(block) rosetta_x64_dblock_register(block, 0);
 
     mutex_unlock(&my_context->mutex_dyndump);
 
@@ -360,6 +362,7 @@ dynablock_t* internalDBGetBlock(x64emu_t* emu, uintptr_t addr, int create, int n
                 else
                     block->sep[i].active = 0;
             }
+            rosetta_x64_dblock_register(block, 1);
         }
     }
     if(need_lock)

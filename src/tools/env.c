@@ -803,16 +803,22 @@ void RecordEnvMappings(uintptr_t addr, size_t length, int fd)
     if(!mapping_entries) mapping_entries = kh_init(mapping_entry);
 
     char* filename = NULL;
-    static char fullname[4096];
+    /* [rosetta 补丁 0021] 跨境缓冲落 **guest 堆**:buf(/proc/self/fd/N 路径)
+     * 与 fullname(readlink 目标)都要过桥面(readlink → musl → sentry),
+     * sentry 只解析 guest VA —— 宿主 .bss/栈缓冲直落即越窗 EFAULT。 */
+    char* fullname = (char*)box_malloc(4096);
+    char* buf = (char*)box_malloc(128);
+    if (!fullname || !buf) { box_free(fullname); box_free(buf); return; }
+    fullname[0] = 0;
     if (fd > 0) {
-        static char buf[128];
         sprintf(buf, "/proc/self/fd/%d", fd);
-        ssize_t r = readlink(buf, fullname, sizeof(fullname) - 1);
+        ssize_t r = readlink(buf, fullname, 4096 - 1);
         if (r != -1) fullname[r] = 0;
 
         filename = strrchr(fullname, '/');
     }
-    if (!filename) return;
+    if (!filename) { box_free(fullname); box_free(buf); return; }
+    box_free(buf);   /* 路径串用毕(readlink 后不再用) */
 
     char* lowercase_filename = LowerCase(filename);
     if(strstr(lowercase_filename, "/memfd:")==lowercase_filename) {
@@ -852,6 +858,7 @@ void RecordEnvMappings(uintptr_t addr, size_t length, int fd)
     if(mapping && mapping->start>addr) {
         dynarec_log(LOG_INFO, "Ignoring Mapping of fd:%d %s (%s) adjusted start: %p from %p\n", fd, fullname, lowercase_filename, (void*)addr, (void*)(mapping->start));
         box_free(lowercase_filename);
+        box_free(fullname);
         mutex_unlock(&my_context->mutex_dyndump);
         return;
     }
@@ -881,6 +888,7 @@ void RecordEnvMappings(uintptr_t addr, size_t length, int fd)
         PrintEnvVariables(mapping->env, LOG_DEBUG);
     }
     box_free(lowercase_filename);
+    box_free(fullname);
 #endif
 }
 
@@ -1023,6 +1031,8 @@ size_t SizeFileMapped(uintptr_t addr)
 
 int IsAddrNeedReloc(uintptr_t addr)
 {
+    (void)addr;
+    return 1;
     box64env_t* env = GetCurEnvByAddr(addr);
     // TODO: this seems quite wrong and should be refactored
     int test = env->is_dynacache_overridden?env->dynacache:box64env.dynacache;

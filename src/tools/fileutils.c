@@ -15,6 +15,8 @@
 #include "debug.h"
 #include "fileutils.h"
 
+FILE* rosetta_guest_lib_fopen(const char* path);
+
 static const char* x86lib  = "\x7f" "ELF" "\x01" "\x01" "\x01" "\x03" "\x00" "\x00" "\x00" "\x00" "\x00" "\x00" "\x00" "\x00" "\x02" "\x00" "\x03" "\x00";
 static const char* x64lib  = "\x7f" "ELF" "\x02" "\x01" "\x01" "\x03" "\x00" "\x00" "\x00" "\x00" "\x00" "\x00" "\x00" "\x00" "\x02" "\x00" "\x3e" "\x00";
 static const char* bashsign= "#!/bin/bash";

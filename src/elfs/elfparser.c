@@ -126,94 +126,101 @@ elfheader_t* ParseElfHeader32(FILE* f, const char* name, int exec) { return NULL
 #endif
 elfheader_t* ParseElfHeader64(FILE* f, const char* name, int exec)
 {
-    Elf64_Ehdr header;
+    /* [rosetta 补丁 0021] 结构体落 **guest 堆**:本源件内的 fread 目标
+     * 要过桥面(rosetta_guest_fread → musl → sentry),sentry 只解析
+     * guest VA —— 宿主栈缓冲直落即越窗 EFAULT。box_malloc = 
+     * ROSETTA_EMBED 下的 guest 堆通道(debug.h 宏族)。 */
+    Elf64_Ehdr* header = (Elf64_Ehdr*)box_malloc(sizeof(Elf64_Ehdr));
+    if(!header) return NULL;
     int level = (exec)?LOG_INFO:LOG_DEBUG;
-    if(fread(&header, sizeof(Elf64_Ehdr), 1, f)!=1) {
+    if(fread(header, sizeof(Elf64_Ehdr), 1, f)!=1) {
         printf_log(level, "Cannot read ELF Header\n");
-        return NULL;
+        box_free(header); return NULL;
     }
-    if(memcmp(header.e_ident, ELFMAG, SELFMAG)!=0) {
-        printf_log(LOG_INFO, "Not an ELF file (sign=%c%c%c%c)\n", header.e_ident[0], header.e_ident[1], header.e_ident[2], header.e_ident[3]);
-        return NULL;
+    if(memcmp(header->e_ident, ELFMAG, SELFMAG)!=0) {
+        printf_log(LOG_INFO, "Not an ELF file (sign=%c%c%c%c)\n", header->e_ident[0], header->e_ident[1], header->e_ident[2], header->e_ident[3]);
+        box_free(header); return NULL;
     }
-    if(header.e_ident[EI_CLASS]!=ELFCLASS64) {
+    if(header->e_ident[EI_CLASS]!=ELFCLASS64) {
         if(strstr(name, ".so")) {
             // less naging on libs...
-            printf_dump(LOG_DEBUG, "Not a 64bits ELF (%d)\n", header.e_ident[EI_CLASS]);
-            return NULL;
+            printf_dump(LOG_DEBUG, "Not a 64bits ELF (%d)\n", header->e_ident[EI_CLASS]);
+            box_free(header); return NULL;
         }
-        if(header.e_ident[EI_CLASS]==ELFCLASS32) {
+        if(header->e_ident[EI_CLASS]==ELFCLASS32) {
             printf_log(LOG_INFO, "This is a 32bits ELF! box64 can only run 64bits ELF (%s)!\n", name);
         } else {
-            printf_log(LOG_INFO, "Not a 64bits ELF (%d)\n", header.e_ident[EI_CLASS]);
+            printf_log(LOG_INFO, "Not a 64bits ELF (%d)\n", header->e_ident[EI_CLASS]);
         }
-        return NULL;
+        box_free(header); return NULL;
     }
-    if(header.e_ident[EI_DATA]!=ELFDATA2LSB) {
-        printf_log(LOG_INFO, "Not a LittleEndian ELF (%d)\n", header.e_ident[EI_DATA]);
-        return NULL;
+    if(header->e_ident[EI_DATA]!=ELFDATA2LSB) {
+        printf_log(LOG_INFO, "Not a LittleEndian ELF (%d)\n", header->e_ident[EI_DATA]);
+        box_free(header); return NULL;
     }
-    if(header.e_ident[EI_VERSION]!=EV_CURRENT) {
-        printf_log(LOG_INFO, "Incorrect ELF version (%d)\n", header.e_ident[EI_VERSION]);
-        return NULL;
+    if(header->e_ident[EI_VERSION]!=EV_CURRENT) {
+        printf_log(LOG_INFO, "Incorrect ELF version (%d)\n", header->e_ident[EI_VERSION]);
+        box_free(header); return NULL;
     }
-    if(header.e_ident[EI_OSABI]!=ELFOSABI_LINUX && header.e_ident[EI_OSABI]!=ELFOSABI_NONE && header.e_ident[EI_OSABI]!=ELFOSABI_SYSV) {
-        printf_log(LOG_INFO, "Not a Linux ELF (%d)\n",header.e_ident[EI_OSABI]);
-        return NULL;
-    }
-
-    if(header.e_type != ET_EXEC && header.e_type != ET_DYN) {
-        printf_log(LOG_INFO, "Not an Executable (%d)\n", header.e_type);
-        return NULL;
+    if(header->e_ident[EI_OSABI]!=ELFOSABI_LINUX && header->e_ident[EI_OSABI]!=ELFOSABI_NONE && header->e_ident[EI_OSABI]!=ELFOSABI_SYSV) {
+        printf_log(LOG_INFO, "Not a Linux ELF (%d)\n",header->e_ident[EI_OSABI]);
+        box_free(header); return NULL;
     }
 
-    if(header.e_machine != EM_X86_64) {
-        printf_log(level, "Not an x86_64 ELF (%d)\n", header.e_machine);
-        return NULL;
+    if(header->e_type != ET_EXEC && header->e_type != ET_DYN) {
+        printf_log(LOG_INFO, "Not an Executable (%d)\n", header->e_type);
+        box_free(header); return NULL;
     }
 
-    if(header.e_entry == 0 && exec) {
+    if(header->e_machine != EM_X86_64) {
+        printf_log(level, "Not an x86_64 ELF (%d)\n", header->e_machine);
+        box_free(header); return NULL;
+    }
+
+    if(header->e_entry == 0 && exec) {
         printf_log(LOG_INFO, "No entry point in ELF\n");
-        return NULL;
+        box_free(header); return NULL;
     }
-    if(header.e_phentsize != sizeof(Elf64_Phdr)) {
-        printf_log(LOG_INFO, "Program Header Entry size incorrect (%d != %ld)\n", header.e_phentsize, sizeof(Elf64_Phdr));
-        return NULL;
+    if(header->e_phentsize != sizeof(Elf64_Phdr)) {
+        printf_log(LOG_INFO, "Program Header Entry size incorrect (%d != %ld)\n", header->e_phentsize, sizeof(Elf64_Phdr));
+        box_free(header); return NULL;
     }
-    if(header.e_shentsize != sizeof(Elf64_Shdr) && header.e_shentsize != 0) {
-        printf_log(LOG_INFO, "Section Header Entry size incorrect (%d != %ld)\n", header.e_shentsize, sizeof(Elf64_Shdr));
-        return NULL;
+    if(header->e_shentsize != sizeof(Elf64_Shdr) && header->e_shentsize != 0) {
+        printf_log(LOG_INFO, "Section Header Entry size incorrect (%d != %ld)\n", header->e_shentsize, sizeof(Elf64_Shdr));
+        box_free(header); return NULL;
     }
 
     elfheader_t *h = box_calloc(1, sizeof(elfheader_t));
     h->name = box_strdup(name);
-    h->entrypoint = header.e_entry;
-    h->numPHEntries = header.e_phnum;
-    h->numSHEntries = header.e_shnum;
-    h->SHIdx = header.e_shstrndx;
-    h->e_type = header.e_type;
+    h->entrypoint = header->e_entry;
+    h->numPHEntries = header->e_phnum;
+    h->numSHEntries = header->e_shnum;
+    h->SHIdx = header->e_shstrndx;
+    h->e_type = header->e_type;
     // special cases for nums
-    if(header.e_shentsize && !h->numSHEntries && header.e_shoff) {
+    if(header->e_shentsize && !h->numSHEntries && header->e_shoff) {
         printf_dump(LOG_DEBUG, "Read number of Sections in 1st Section\n");
         // read 1st section header and grab actual number from here
-        fseeko64(f, header.e_shoff, SEEK_SET);
-        Elf64_Shdr section;
-        if(fread(&section, sizeof(Elf64_Shdr), 1, f)!=1) {
+        fseeko64(f, header->e_shoff, SEEK_SET);
+        Elf64_Shdr* section = (Elf64_Shdr*)box_malloc(sizeof(Elf64_Shdr));
+        if(!section) { box_free(h); box_free(header); return NULL; }
+        if(fread(section, sizeof(Elf64_Shdr), 1, f)!=1) {
             box_free(h);
             printf_log(LOG_INFO, "Cannot read Initial Section Header\n");
-            return NULL;
+            box_free(header); return NULL;
         }
-        h->numSHEntries = section.sh_size;
+        h->numSHEntries = section->sh_size;
+        box_free(section);
     }
-    if(header.e_shentsize && h->numSHEntries) {
+    if(header->e_shentsize && h->numSHEntries) {
         // now read all section headers
         printf_dump(LOG_DEBUG, "Read %zu Section header\n", h->numSHEntries);
         h->SHEntries._64 = (Elf64_Shdr*)box_calloc(h->numSHEntries, sizeof(Elf64_Shdr));
-        fseeko64(f, header.e_shoff ,SEEK_SET);
+        fseeko64(f, header->e_shoff ,SEEK_SET);
         if(fread(h->SHEntries._64, sizeof(Elf64_Shdr), h->numSHEntries, f)!=h->numSHEntries) {
                 FreeElfHeader(&h);
                 printf_log(LOG_INFO, "Cannot read all Section Header\n");
-                return NULL;
+                box_free(header); return NULL;
         }
 
         if(h->numPHEntries == PN_XNUM) {
@@ -225,15 +232,15 @@ elfheader_t* ParseElfHeader64(FILE* f, const char* name, int exec)
 
     printf_dump(LOG_DEBUG, "Read %zu Program header\n", h->numPHEntries);
     h->PHEntries._64 = (Elf64_Phdr*)box_calloc(h->numPHEntries, sizeof(Elf64_Phdr));
-    fseeko64(f, header.e_phoff ,SEEK_SET);
+    fseeko64(f, header->e_phoff ,SEEK_SET);
     if(fread(h->PHEntries._64, sizeof(Elf64_Phdr), h->numPHEntries, f)!=h->numPHEntries) {
             FreeElfHeader(&h);
             printf_log(LOG_INFO, "Cannot read all Program Header\n");
-            return NULL;
+            box_free(header); return NULL;
     }
     
-    if (BOX64ENV(dump)) DumpMainHeader64(&header, h);
-    if(header.e_shentsize && header.e_shnum) {
+    if (BOX64ENV(dump)) DumpMainHeader64(header, h);
+    if(header->e_shentsize && header->e_shnum) {
         if(h->SHIdx == SHN_XINDEX) {
             printf_dump(LOG_DEBUG, "Read number of String Table in 1st Section\n");
             h->SHIdx = h->SHEntries._64[0].sh_link;
@@ -241,13 +248,13 @@ elfheader_t* ParseElfHeader64(FILE* f, const char* name, int exec)
         if(h->SHIdx > h->numSHEntries) {
             printf_log(LOG_INFO, "Incoherent Section String Table Index : %zu / %zu\n", h->SHIdx, h->numSHEntries);
             FreeElfHeader(&h);
-            return NULL;
+            box_free(header); return NULL;
         }
         // load Section table
         printf_dump(LOG_DEBUG, "Loading Sections Table String (idx = %zu)\n", h->SHIdx);
         if(LoadSH(f, h->SHEntries._64+h->SHIdx, (void*)&h->SHStrTab, ".shstrtab", SHT_STRTAB)) {
             FreeElfHeader(&h);
-            return NULL;
+            box_free(header); return NULL;
         }
 
         LoadNamedSection(f, h->SHEntries._64, h->numSHEntries, h->SHStrTab, ".strtab", "SymTab Strings", SHT_STRTAB, (void**)&h->StrTab, NULL);
@@ -381,7 +388,7 @@ elfheader_t* ParseElfHeader64(FILE* f, const char* name, int exec)
             if(h->relent != sizeof(Elf64_Rel)) {
                 printf_log(LOG_NONE, "Rel Table Entry size invalid (0x%x should be 0x%zx)\n", h->relent, sizeof(Elf64_Rel));
                 FreeElfHeader(&h);
-                return NULL;
+                box_free(header); return NULL;
             }
             printf_dump(LOG_DEBUG, "Rel Table @%p (0x%zx/0x%x)\n", (void*)h->rel, h->relsz, h->relent);
         }
@@ -389,7 +396,7 @@ elfheader_t* ParseElfHeader64(FILE* f, const char* name, int exec)
             if(h->relaent != sizeof(Elf64_Rela)) {
                 printf_log(LOG_NONE, "RelA Table Entry size invalid (0x%x should be 0x%zx)\n", h->relaent, sizeof(Elf64_Rela));
                 FreeElfHeader(&h);
-                return NULL;
+                box_free(header); return NULL;
             }
             printf_dump(LOG_DEBUG, "RelA Table @%p (0x%zx/0x%x)\n", (void*)h->rela, h->relasz, h->relaent);
         }
@@ -401,12 +408,12 @@ elfheader_t* ParseElfHeader64(FILE* f, const char* name, int exec)
             } else {
                 printf_log(LOG_NONE, "PLT Table type is unknown (size = 0x%zx, type=%ld)\n", h->pltsz, h->pltrel);
                 FreeElfHeader(&h);
-                return NULL;
+                box_free(header); return NULL;
             }
             if((h->pltsz / h->pltent)*h->pltent != h->pltsz) {
                 printf_log(LOG_NONE, "PLT Table Entry size invalid (0x%zx, ent=0x%x, type=%ld)\n", h->pltsz, h->pltent, h->pltrel);
                 FreeElfHeader(&h);
-                return NULL;
+                box_free(header); return NULL;
             }
             printf_dump(LOG_DEBUG, "PLT Table @%p (type=%ld 0x%zx/0x%0x)\n", (void*)h->jmprel, h->pltrel, h->pltsz, h->pltent);
         }
@@ -474,6 +481,7 @@ elfheader_t* ParseElfHeader64(FILE* f, const char* name, int exec)
         }
     }
 
+    box_free(header);
     return h;
 }
 

@@ -20,6 +20,7 @@
 #include "khash.h"
 #include "box64context.h"
 #include "fileutils.h"
+FILE* rosetta_guest_lib_fopen(const char* path);
 #include "librarian.h"
 #include "librarian_private.h"
 #include "pathcoll.h"
@@ -263,6 +264,14 @@ static void initWrappedLib(library_t *lib, box64context_t* context) {
     for (int i=0; i<nb; ++i) {
         wrappedlib_t* w = box64_is32bits?(&wrappedlibs32[i]):(&wrappedlibs[i]);
         if(strcmp(lib->name, w->name)==0) {
+#ifdef ROSETTA_EMBED
+            /* [rosetta 补丁 0022] 「wrapped 库一件不装」不变式守卫。
+             * 零-wrapped 是死码守卫桩(glob/posix_spawn 族/pthread_attr
+             * 四件)成立的**前提**:那些实现体只在 wrapped 表被绑定时
+             * 才可达。绑上 = 桩从"陷阱"变"活路径上的地雷",故当场
+             * fail-loud(shim 侧打印 + exit_group),不留静默。 */
+            rosetta_embed_wrapped_lib_refused(lib->name);
+#endif
             int err = w->init(lib, context);
             if (err) {
                 if (err == -1) {
@@ -311,9 +320,17 @@ static void initWrappedLib(library_t *lib, box64context_t* context) {
 
 static int loadEmulatedLib(const char* libname, library_t *lib, box64context_t* context, elfheader_t* verneeded)
 {
+#ifdef ROSETTA_EMBED
+
+    FILE *f = fopen(libname, "rb");
+    if(f)
+#else
     if(FileExist(libname, IS_FILE))
+#endif
     {
+#ifndef ROSETTA_EMBED
         FILE *f = fopen(libname, "rb");
+#endif
         if(!f) {
             printf_log(LOG_NONE, "Error: Cannot open %s\n", libname);
             return 0;

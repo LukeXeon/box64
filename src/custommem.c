@@ -33,8 +33,18 @@
 #include "freq.h"
 
 // init inside dynablocks.c
+#ifdef ROSETTA_EMBED
+
+#define memprot      (*((rbtree_t**)        &ROSETTA_GG->memprot))
+#define mapallmem    (*((rbtree_t**)        &ROSETTA_GG->mapallmem))
+#define blockstree   (*((rbtree_t**)        &ROSETTA_GG->blockstree))
+#define rbt_dynmem   (*((rbtree_t**)        &ROSETTA_GG->rbt_dynmem))
+#define mmaplist     (*((mmaplist_t**)      &ROSETTA_GG->mmaplist))
+
+#else
 static mmaplist_t          *mmaplist = NULL;
 static rbtree_t            *rbt_dynmem = NULL;
+#endif
 static uint64_t jmptbl_allocated = 0, jmptbl_allocated1 = 0, jmptbl_allocated2 = 0;
 #if JMPTABL_SHIFTMAX != 16
 #error Incorect value for jumptable shift max that should be 16
@@ -56,7 +66,12 @@ static uintptr_t*          box64_jmptbldefault1[1<<JMPTABL_SHIFT1];
 static uintptr_t           box64_jmptbldefault0[1<<JMPTABL_SHIFT0];
 // lock addresses
 KHASH_SET_INIT_INT64(lockaddress)
+#ifdef ROSETTA_EMBED
+
+#define lockaddress (*((kh_lockaddress_t**)&ROSETTA_GG->lockaddress))
+#else
 static kh_lockaddress_t    *lockaddress = NULL;
+#endif
 #ifdef USE_CUSTOM_MUTEX
 uint32_t            mutex_prot;
 uint32_t            mutex_blocks;
@@ -69,7 +84,9 @@ pthread_mutex_t     mutex_prot;
 pthread_mutex_t     mutex_blocks;
 #endif
 //#define TRACE_MEMSTAT
+#ifndef ROSETTA_EMBED
 rbtree_t* memprot = NULL;
+#endif
 int have48bits = 0;
 static int inited = 0;
 typedef enum {
@@ -82,8 +99,10 @@ typedef enum {
     MEM_EXTERNAL = 17,
     MEM_ELF = 33
 } mem_flag_t;
+#ifndef ROSETTA_EMBED
 rbtree_t*  mapallmem = NULL;
 static rbtree_t*  blockstree = NULL;
+#endif
 
 #define BTYPE_MAP   1
 #define BTYPE_LIST  0
@@ -2737,12 +2756,15 @@ void loadProtectionFromMap()
 #ifndef _WIN32 // TODO: Should this be implemented on Win32?
     if(box64_mapclean)
         return;
-    char buf[500];
-    FILE *f = fopen("/proc/self/maps", "r");
-    if(!f)
-        return;
+    /* [rosetta 补丁 0021] 路径字面量 + 行缓冲落 **guest 堆**
+     * (fopen/fgets 过桥面;sentry 只解析 guest VA)。 */
+    char* buf = (char*)box_malloc(500);
+    char* mapspath = box_strdup("/proc/self/maps");
+    if(!buf || !mapspath) { box_free(buf); box_free(mapspath); return; }
+    FILE *f = fopen(mapspath, "r");
+    if(!f) { box_free(buf); box_free(mapspath); return; }
     while(!feof(f)) {
-        char* ret = fgets(buf, sizeof(buf), f);
+        char* ret = fgets(buf, 500, f);
         (void)ret;
         char r, w, x;
         uintptr_t s, e;
@@ -2766,6 +2788,9 @@ void loadProtectionFromMap()
                 have48bits = 1;
         }
     }
+    fclose(f);
+    box_free(buf);
+    box_free(mapspath);
     if(!have48bits && !box64_is32bits) {
         void* probe = InternalMmap((void*)0x7fff00000000LL, box64_pagesize, PROT_NONE,
                                    MAP_PRIVATE|MAP_ANONYMOUS|MAP_NORESERVE, -1, 0);
@@ -3134,11 +3159,41 @@ void init_custommem_helper(box64context_t* ctx)
     reserveHighMem();
 }
 
+#ifdef ROSETTA_EMBED
+
+void rosetta_custommem_init_tables(void)
+{
+    cur_brk = dlsym(RTLD_NEXT, "__curbrk");
+    init_mutexes();
+
+    inited = 1;
+#ifdef DYNAREC
+    #ifdef JMPTABL_SHIFT4
+    for(int i=0; i<(1<<JMPTABL_SHIFT3); ++i)
+        box64_jmptbl3[i] = box64_jmptbldefault2;
+    for(int i=0; i<(1<<JMPTABL_SHIFT2); ++i)
+        box64_jmptbldefault2[i] = box64_jmptbldefault1;
+    #else
+    for(int i=0; i<(1<<JMPTABL_SHIFT2); ++i)
+        box64_jmptbl2[i] = box64_jmptbldefault1;
+    #endif
+    for(int i=0; i<(1<<JMPTABL_SHIFT1); ++i)
+        box64_jmptbldefault1[i] = box64_jmptbldefault0;
+    for(int i=0; i<(1<<JMPTABL_SHIFT0); ++i)
+        box64_jmptbldefault0[i] = (uintptr_t)native_next;
+#endif
+}
+
+void rosetta_custommem_atfork_child(void)
+{
+    atfork_child_custommem();
+}
+#endif
+
 void fini_custommem_helper(box64context_t *ctx)
 {
     (void)ctx;
-#ifdef TRACE_MEMSTAT
-    uintptr_t njmps = 0, njmps_in_lv1_max = 0;
+#ifdef TRACE_MEMSTAT    uintptr_t njmps = 0, njmps_in_lv1_max = 0;
     #ifdef JMPTABL_SHIFT4
     uintptr_t*** box64_jmptbl2;
     for(uintptr_t idx3 = 0; idx3 < (1<< JMPTABL_SHIFT3); ++idx3) {    

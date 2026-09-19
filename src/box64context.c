@@ -145,6 +145,11 @@ static void atfork_child_box64context(void)
     #endif
 }
 
+void rosetta_box64context_atfork_child(void)
+{
+    atfork_child_box64context();
+}
+
 int box64_cycle_log_initialized = 0;
 
 void freeCycleLog(box64context_t* ctx)

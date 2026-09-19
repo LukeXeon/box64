@@ -49,6 +49,7 @@ int IsNativeCall(uintptr_t addr, int is32bits, uintptr_t* calladdress, uint16_t*
     return isNativeCallInternal(addr, is32bits, calladdress, retn);
 }
 
+#ifndef ROSETTA_EMBED
 void* EmuFork(void* emu, int forktype)
 {
     return x64emu_fork((x64emu_t*)emu, forktype);
@@ -68,6 +69,7 @@ void EmuX86Syscall(void* emu)
 {
     x86Syscall((x64emu_t*)emu);
 }
+#endif
 
 extern int box64_is32bits;
 
@@ -163,35 +165,26 @@ int IsAddrElfOrFileMapped(uintptr_t addr)
 
 void* InternalMmap(void* addr, unsigned long length, int prot, int flags, int fd, ssize_t offset)
 {
-#if 1 // def STATICBUILD
-    void* ret = (void*)syscall(__NR_mmap, addr, length, prot, flags, fd, offset);
+#ifdef ROSETTA_EMBED
+
+    return rosetta_guest_mmap(addr, length, prot, flags, fd, offset);
 #else
-    static int grab = 1;
-    typedef void* (*pFpLiiiL_t)(void*, unsigned long, int, int, int, size_t);
-    static pFpLiiiL_t libc_mmap64 = NULL;
-    if (grab) {
-        libc_mmap64 = dlsym(RTLD_NEXT, "mmap64");
-    }
-    void* ret = libc_mmap64(addr, length, prot, flags, fd, offset);
-#endif
+    void* ret = (void*)syscall(__NR_mmap, addr, length, prot, flags, fd, offset);
     return ret;
+#endif
 }
 
 int InternalMunmap(void* addr, unsigned long length)
 {
-#if 1 // def STATICBUILD
-    int ret = syscall(__NR_munmap, addr, length);
+#ifdef ROSETTA_EMBED
+
+    return rosetta_guest_munmap(addr, length);
 #else
-    static int grab = 1;
-    typedef int (*iFpL_t)(void*, unsigned long);
-    static iFpL_t libc_munmap = NULL;
-    if (grab) {
-        libc_munmap = dlsym(RTLD_NEXT, "munmap");
-    }
-    int ret = libc_munmap(addr, length);
-#endif
+    int ret = syscall(__NR_munmap, addr, length);
     return ret;
+#endif
 }
+
 
 extern FILE* ftrace;
 extern char* ftrace_name;
@@ -242,40 +235,63 @@ void* GetEnv(const char* name)
 
 int FileExist(const char* filename, int flags)
 {
-    struct stat sb;
-    if (stat(filename, &sb) == -1)
-        return 0;
-    if (flags == -1)
-        return 1;
+    /* [rosetta 补丁 0021] struct stat 落 **guest 堆**:stat 要过桥面
+     * (→ musl → sentry),sentry 只解析 guest VA(宿主栈直落 = 越窗 EFAULT)。 */
+    struct stat* sb = (struct stat*)box_malloc(sizeof(struct stat));
+    int ret = 0;
+    if (!sb) return 0;
+    if (stat(filename, sb) == -1)
+        goto done;
+    if (flags == -1) {
+        ret = 1;
+        goto done;
+    }
     // check type of file? should be executable, or folder
     if (flags & IS_FILE) {
-        if (!S_ISREG(sb.st_mode))
-            return 0;
-    } else if (!S_ISDIR(sb.st_mode))
-        return 0;
+        if (!S_ISREG(sb->st_mode))
+            goto done;
+    } else if (!S_ISDIR(sb->st_mode))
+        goto done;
 
     if (flags & IS_EXECUTABLE) {
-        if ((sb.st_mode & S_IXUSR) != S_IXUSR)
-            return 0; // nope
+        if ((sb->st_mode & S_IXUSR) != S_IXUSR)
+            goto done; // nope
     }
-    return 1;
+    ret = 1;
+done:
+    box_free(sb);
+    return ret;
 }
 
 int MakeDir(const char* folder)
 {
-    int ret = mkdir(folder, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
-    if(!ret || ret==EEXIST)
+    /* [rosetta 补丁 0025] 上游此处比的是 **mkdir 的返回值**与 EEXIST,
+     * 而 POSIX 的 mkdir 只返回 0/-1 ⇒ 那个分支恒假,函数实际退化成
+     * "目录已存在即失败"。glibc 下被同处调用的 FileExist 短路掩盖,
+     * 从未暴露;bionic 下**实测致命**:壳已按 env 建好 dynacache 目录
+     * 并注入 BOX64_DYNACACHE_FOLDER,FileExist 也确认目录存在,但一旦
+     * 这条 `ret==EEXIST` 分支没接住,GetDynacacheFolder 就回落到
+     * `$HOME/.cache`(`HOME` 未设 = 空串,拼出 "//.cache" 这种宿主名),
+     * 而该回落路径的 stat 经桥面必然越窗 —— x64 载荷全灭。
+     * 修法 = 查 errno(上游本意),EEXIST 视为成功(目录已在)。 */
+    if(!mkdir(folder, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH))
         return 1;
-    return 0;
+    return (errno == EEXIST) ? 1 : 0;
 }
 
 size_t FileSize(const char* filename)
 {
-    struct stat sb;
-    if (stat(filename, &sb) == -1)
-        return 0;
+    /* [rosetta 补丁 0021] 同上:struct stat 落 guest 堆。 */
+    struct stat* sb = (struct stat*)box_malloc(sizeof(struct stat));
+    size_t ret = 0;
+    if (!sb) return 0;
+    if (stat(filename, sb) == -1)
+        goto done;
     // check type of file? should be executable, or folder
-    if (!S_ISREG(sb.st_mode))
-        return 0;
-    return sb.st_size;
+    if (!S_ISREG(sb->st_mode))
+        goto done;
+    ret = sb->st_size;
+done:
+    box_free(sb);
+    return ret;
 }

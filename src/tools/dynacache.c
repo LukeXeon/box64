@@ -45,7 +45,11 @@ void add_unaligned_address(uintptr_t addr);
 
 const char* GetDynacacheFolder(mapping_t* mapping)
 {
-    static char folder[4096] = { 0 };
+    /* [rosetta 补丁 0026] 返回串要经调用方喂给 guest fopen/opendir 族,
+     * 故必须落 **guest 堆**(桥面指针透明:引擎不给 guest 内存就是越窗
+     * 拒绝)。upstream 的 static 宿主 .bss 数组在本形态必死。 */
+    static char* folder = NULL;
+    if(!folder) { folder = (char*)box_malloc(4096); if(!folder) return NULL; }
     if(mapping && mapping->env && mapping->env->is_dynacache_folder_overridden && mapping->env->dynacache_folder) {
         if (FileExist(mapping->env->dynacache_folder, 0) || MakeDir(mapping->env->dynacache_folder)) {
             strcpy(folder, mapping->env->dynacache_folder);
@@ -219,7 +223,10 @@ char* MmaplistName(const char* filename, uint64_t dynarec_settings, const char* 
     // names are FOLDER/filename-YYYYY-XXXXX.box64
     // Where XXXXX is the hash of the full name
     // and YYYY is the Dynarec optim (in hex)
-    static char mapname[4096];
+    /* [rosetta 补丁 0026] 返回串经调用方喂给 guest FileExist/fopen,
+     * 必须落 **guest 堆**(桥面指针透明;宿主 .bss 必被越窗拒绝)。 */
+    static char* mapname = NULL;
+    if(!mapname) { mapname = (char*)box_malloc(4096); if(!mapname) return NULL; }
     snprintf(mapname, 4095-6, "%s-%" PRIx64 "-%u", filename, dynarec_settings, __ac_X31_hash_string(fullname));
     strcat(mapname, ".box64");
     return mapname;
@@ -290,10 +297,11 @@ static size_t DynaCacheHeaderSize(const DynaCacheHeader_t* header)
 
 static void SyncDynaCacheFolder(const char* folder)
 {
+    /* [rosetta 补丁 0024] 宏面 = POSIX 三参 open(guest 语义)。 */
 #ifdef O_DIRECTORY
-    int fd = open(folder, O_RDONLY|O_DIRECTORY|O_CLOEXEC);
+    int fd = open(folder, O_RDONLY|O_DIRECTORY|O_CLOEXEC, 0);
 #else
-    int fd = open(folder, O_RDONLY|O_CLOEXEC);
+    int fd = open(folder, O_RDONLY|O_CLOEXEC, 0);
 #endif
     if(fd>=0) {
         fsync(fd);
@@ -320,19 +328,28 @@ static int RemoveStaleDynaCacheTempFile(const char* folder, const char* name)
     if(!strstr(name, ".box64.tmp."))
         return 0;
 
-    char filename[strlen(folder)+strlen(name)+1];
+    /* [rosetta 补丁 0026] 路径与 struct stat 落 **guest 堆**(lstat/
+     * unlink 过桥面,sentry 只解析 guest VA)。 */
+    static char* filename = NULL;
+    static struct stat* st = NULL;
+    if(!filename) {
+        filename = (char*)box_malloc(4096);
+        st = (struct stat*)box_malloc(sizeof(struct stat));
+        if(!filename || !st) return 0;
+    }
+    if(strlen(folder)+strlen(name)+1 > 4096) return 0;
     strcpy(filename, folder);
     strcat(filename, name);
 
-    struct stat st = {0};
-    if(lstat(filename, &st) || !S_ISREG(st.st_mode) || st.st_size<0)
+    memset(st, 0, sizeof(*st));
+    if(lstat(filename, st) || !S_ISREG(st->st_mode) || st->st_size<0)
         return 0;
 
     time_t now = time(NULL);
-    if(now==(time_t)-1 || st.st_mtime > now-DYNACACHE_TMP_STALE_SECONDS)
+    if(now==(time_t)-1 || st->st_mtime > now-DYNACACHE_TMP_STALE_SECONDS)
         return 0;
 
-    size_t size = st.st_size;
+    size_t size = st->st_size;
     if(unlink(filename))
         return 0;
 
@@ -375,8 +392,12 @@ static void PruneDynaCacheFolder(const char* folder, uint64_t max_size)
         strcpy(filename, folder);
         strcat(filename, d->d_name);
 
-        struct stat st = {0};
-        if(lstat(filename, &st) || !S_ISREG(st.st_mode) || st.st_size<0) {
+        /* [rosetta 补丁 0026] struct stat 落 guest 堆(lstat 过桥面)。 */
+        static struct stat* st = NULL;
+        if(!st) st = (struct stat*)box_malloc(sizeof(struct stat));
+        if(!st) { box_free(filename); continue; }
+        memset(st, 0, sizeof(*st));
+        if(lstat(filename, st) || !S_ISREG(st->st_mode) || st->st_size<0) {
             box_free(filename);
             continue;
         }
@@ -389,8 +410,8 @@ static void PruneDynaCacheFolder(const char* folder, uint64_t max_size)
         }
 
         files[count].filename = filename;
-        files[count].size = st.st_size;
-        files[count].mtime = st.st_mtime;
+        files[count].size = st->st_size;
+        files[count].mtime = st->st_mtime;
         files[count].valid = -1;
         total += files[count].size;
         ++count;
@@ -645,7 +666,10 @@ int ReadDynaCache(const char* folder, const char* name, mapping_t* mapping, int 
 {
     int ret = DCERR_OK;
     uint8_t* all_header = NULL;
-    char filename[strlen(folder)+strlen(name)+1];
+    /* [rosetta 补丁 0026] 路径落 guest 堆(FileExist/fopen 过桥面)。 */
+    static char* filename = NULL;
+    if(!filename) filename = (char*)box_malloc(4096);
+    if(!filename || strlen(folder)+strlen(name)+1 > 4096) return DCERR_FERROR;
     strcpy(filename, folder);
     strcat(filename, name);
     if (!FileExist(filename, IS_FILE)) return DCERR_NEXIST;
@@ -655,14 +679,18 @@ int ReadDynaCache(const char* folder, const char* name, mapping_t* mapping, int 
         if (verbose) printf_log_prefix(0, LOG_NONE, "Cannot open file\n");
         return DCERR_FERROR;
     }
-    struct stat st = {0};
+    /* [rosetta 补丁 0026] struct stat 落 guest 堆(fstat 过桥面)。 */
+    static struct stat* st = NULL;
+    if(!st) st = (struct stat*)box_malloc(sizeof(struct stat));
+    if(!st) { fclose(f); return DCERR_FERROR; }
+    memset(st, 0, sizeof(*st));
     int fd = fileno(f);
-    if(fstat(fd, &st) || !S_ISREG(st.st_mode) || st.st_size<0) {
+    if(fstat(fd, st) || !S_ISREG(st->st_mode) || st->st_size<0) {
         if(verbose) printf_log_prefix(0, LOG_NONE, "Cannot stat file\n");
         fclose(f);
         return DCERR_FERROR;
     }
-    size_t filesize = st.st_size;
+    size_t filesize = st->st_size;
     if(filesize<sizeof(DynaCacheHeader_t)) {
         if(verbose) printf_log_prefix(0, LOG_NONE, "Invalid side: %zd\n", filesize);
         fclose(f);
@@ -977,7 +1005,10 @@ void DynaCacheClean()
         if(l>6 && !strcmp(d->d_name+l-6, ".box64")) {
             int ret = ReadDynaCache(folder, d->d_name, NULL, 0);
             if(ret) {
-                char filename[strlen(folder)+strlen(d->d_name)+1];
+                /* [rosetta 补丁 0026] 路径落 guest 堆(FileSize/unlink 过桥面)。 */
+                static char* filename = NULL;
+                if(!filename) filename = (char*)box_malloc(4096);
+                if(!filename || strlen(folder)+strlen(d->d_name)+1 > 4096) continue;
                 strcpy(filename, folder);
                 strcat(filename, d->d_name);
                 size_t filesize = FileSize(filename);

@@ -37,6 +37,37 @@ void WinFree(void* ptr);
 #endif
 
 void* InternalMmap(void* addr, unsigned long length, int prot, int flags, int fd, ssize_t offset);
+
+#ifdef ROSETTA_EMBED
+
+#include "wire.h"
+#define ROSETTA_SNAP_PAGE_ADDR SNAP_PAGE_ADDR /* frontx64 SNAP_PAGE_ADDR */
+#define ROSETTA_GG_OFF SNAP_GG_OFF            /* frontx64 SNAP_GG_OFF */
+typedef struct box64context_s box64context_t;
+typedef struct rosetta_box64_globals_s {
+    void* memprot;
+    void* mapallmem;
+    void* blockstree;
+    void* rbt_dynmem;
+    void* lockaddress;
+    void* mmaplist;
+    void* my_alternates;
+    box64context_t* my_context;
+} rosetta_box64_globals_t;
+#define ROSETTA_GG ((rosetta_box64_globals_t*)(ROSETTA_SNAP_PAGE_ADDR + ROSETTA_GG_OFF))
+
+void rosetta_x64_dblock_register(void* db, int in_jmptbl);
+void rosetta_x64_dblock_unregister(void* db);
+
+void rosetta_custommem_init_tables(void);
+void rosetta_custommem_atfork_child(void);
+void rosetta_box64context_atfork_child(void);
+
+void rosetta_init_signal_helper_adopt(box64context_t* context);
+
+/* 「wrapped 库一件不装」不变式守卫:不可返回(fail-loud)。 */
+void rosetta_embed_wrapped_lib_refused(const char* name);
+#endif
 int InternalMunmap(void* addr, unsigned long length);
 
 int GetTID(void);
